@@ -1,0 +1,5 @@
+# Normalize text to LF; automatic detection leaves binary files unchanged.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
