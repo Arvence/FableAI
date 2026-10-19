@@ -1,12 +1,13 @@
 from os import getenv
 
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 
 
 class Settings(BaseModel):
     app_name: str = "FableAI"
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
+    gemini_timeout_seconds: float = Field(default=30.0, gt=0, le=60, strict=True)
 
 
 def load_settings() -> Settings:
