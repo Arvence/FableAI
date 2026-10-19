@@ -24,7 +24,7 @@ Instruction = Annotated[str, StringConstraints(min_length=1, max_length=MAX_INST
 ReferenceContent = Annotated[str, StringConstraints(min_length=1, max_length=MAX_REFERENCE_CHARS)]
 Headline = Annotated[str, StringConstraints(min_length=1, max_length=MAX_HEADLINE_CHARS)]
 MessageContent = Annotated[str, StringConstraints(min_length=1, max_length=MAX_MESSAGE_CHARS)]
-SourceUrl = Annotated[HttpUrl, UrlConstraints(max_length=MAX_URL_CHARS)]
+SourceUrl = Annotated[HttpUrl, UrlConstraints(max_length=MAX_URL_CHARS, allowed_schemes=["https"])]
 LanguageCode = Annotated[str, StringConstraints(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")]
 ReferenceImportStatus = Literal["not_requested", "pending", "imported", "failed"]
 ErrorCode = Literal["invalid_request", "conversation_not_found", "entry_not_found", "version_conflict", "reference_import_failed", "generation_failed", "rate_limited"]
@@ -62,15 +62,28 @@ class SampleHeadline(ContractModel):
     text: Headline
 
 
+class SourcePermission(ContractModel):
+    url: SourceUrl
+    basis: Literal["owned", "public_domain", "licensed", "explicit_permission"]
+    evidence: str = Field(min_length=1, max_length=1_000)
+    automated_access_allowed: bool = False
+    model_use_allowed: bool = False
+    non_confidential: bool = False
+
+
 class URLReference(ContractModel):
     id: Identifier
     url: SourceUrl
+    label: Headline | None = None
     import_status: ReferenceImportStatus = "not_requested"
     imported_text: ReferenceContent | None = None
+    import_permission: SourcePermission | None = None
     error: ErrorInfo | None = None
 
     @model_validator(mode="after")
     def validate_import_status(self) -> Self:
+        if self.import_permission is not None and (self.import_status != "imported" or not self.import_permission.automated_access_allowed):
+            raise ValueError("Import permission metadata requires a completed, authorized import.")
         if self.import_status == "imported":
             if self.imported_text is None or self.error is not None:
                 raise ValueError("An imported reference requires text and cannot contain an error.")
@@ -96,7 +109,7 @@ class ReferenceCollection(ContractModel):
 
     @property
     def character_count(self) -> int:
-        return sum(len(item.text) for item in [*self.examples, *self.headlines]) + sum(len(str(item.url)) + len(item.imported_text or "") for item in self.urls)
+        return sum(len(item.text) for item in [*self.examples, *self.headlines]) + sum(len(str(item.url)) + len(item.label or "") + len(item.imported_text or "") for item in self.urls)
 
     @model_validator(mode="after")
     def validate_references(self) -> Self:
