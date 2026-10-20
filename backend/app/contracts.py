@@ -18,6 +18,9 @@ MAX_MESSAGE_CHARS = 4_000
 MAX_CONTEXT_MESSAGES = 20
 MAX_CONTEXT_CHARS = 40_000
 MAX_ERROR_DETAILS = 20
+MAX_GENERATION_BODY_CHARS = 12_000
+MAX_ACTIVE_ENTRIES = 20
+MAX_ACTIVE_BODY_CHARS = 24_000
 
 Identifier = Annotated[UUID4, Field(strict=False)]
 Instruction = Annotated[str, StringConstraints(min_length=1, max_length=MAX_INSTRUCTION_CHARS)]
@@ -158,6 +161,26 @@ class ChatMessage(ContractModel):
     content: MessageContent
 
 
+class GenerationRequest(ContractModel):
+    conversation_id: Identifier
+    mode: Literal["synthetic"] = "synthetic"
+    topic: Headline
+    count: int = Field(ge=1, le=MAX_ENTRIES)
+    tone: Literal["neutral", "formal", "informative", "playful"]
+    category: Literal["news", "announcement"]
+    language: LanguageCode
+    min_body_chars: int = Field(ge=1, le=MAX_ENTRY_BODY_CHARS)
+    max_body_chars: int = Field(ge=1, le=MAX_ENTRY_BODY_CHARS)
+
+    @model_validator(mode="after")
+    def validate_generation_budget(self) -> Self:
+        if self.min_body_chars > self.max_body_chars:
+            raise ValueError("Minimum body length cannot exceed maximum body length.")
+        if self.count * self.max_body_chars > MAX_GENERATION_BODY_CHARS:
+            raise ValueError(f"Requested bodies cannot exceed {MAX_GENERATION_BODY_CHARS} characters per batch.")
+        return self
+
+
 class Conversation(ContractModel):
     conversation_id: Identifier
     messages: list[ChatMessage] = Field(default_factory=list, max_length=MAX_CONTEXT_MESSAGES)
@@ -174,8 +197,7 @@ class Conversation(ContractModel):
         return self
 
 
-class GeneratedEntry(ContractModel):
-    id: Identifier
+class EntryContent(ContractModel):
     title: Headline
     body: str = Field(min_length=1, max_length=MAX_ENTRY_BODY_CHARS)
     category: Literal["news", "announcement"]
@@ -183,7 +205,6 @@ class GeneratedEntry(ContractModel):
     language: LanguageCode
     is_synthetic: Literal[True]
     status: Literal["draft"]
-    version: int = Field(ge=1)
 
     @field_validator("is_synthetic", mode="before")
     @classmethod
@@ -191,6 +212,15 @@ class GeneratedEntry(ContractModel):
         if value is not True:
             raise ValueError("is_synthetic must be the JSON boolean true.")
         return value
+
+
+class DraftBatch(ContractModel):
+    entries: list[EntryContent] = Field(min_length=1, max_length=MAX_ENTRIES)
+
+
+class GeneratedEntry(EntryContent):
+    id: Identifier
+    version: int = Field(ge=1)
 
 
 class InitialEntry(GeneratedEntry):
