@@ -1,0 +1,123 @@
+import asyncio
+import json
+from collections.abc import Callable
+from unittest.mock import Mock
+from uuid import uuid4
+
+import httpx
+import pytest
+from google import genai
+
+from app.config import Settings
+from app.contracts import ChatTurnRequest, GeneratedEntry, ReferenceCollection, ReferenceText
+from app.conversation_contracts import ConversationSnapshot, GenerationPreferences
+from app.conversation_service import ConversationService
+from app.gemini_provider import GeminiProvider
+
+
+FAKE_KEY = "offline-conversation-test-key"
+BODY = "In an imaginary harbor, painted kites assemble a drifting mosaic above a paper pier. Visitors rearrange colorful tiles while the pretend tide turns beneath the exhibition."
+SHORT_BODY = "Above an imaginary pier, painted kites carry a floating mosaic. Visitors rearrange its colorful tiles."
+CONTENT = {"title": "[FICTIONAL] Painted Kites Build a Harbor Mosaic", "body": BODY, "category": "announcement", "tags": ["fiction"], "language": "en", "is_synthetic": True, "status": "draft"}
+PREFERENCES = {"topic": "An imaginary harbor exhibition", "count": 1, "tone": "neutral", "category": "announcement", "language": "en", "min_body_chars": 60, "max_body_chars": 300}
+
+
+@pytest.fixture
+def sdk_conversation(monkeypatch: pytest.MonkeyPatch) -> Callable:
+    monkeypatch.setattr("google.genai._api_client.get_env_api_key", lambda: None)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-unused-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "test-unused-location")
+
+    def build(responses: list[str | dict | Callable]) -> tuple[ConversationService, list[dict], Mock]:
+        requests = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            data = json.loads(request.content)
+            requests.append(data)
+            response = responses.pop(0)
+            if callable(response):
+                response = response(data)
+            text = response if isinstance(response, str) else json.dumps(response)
+            return httpx.Response(200, json={"candidates": [{"content": {"role": "model", "parts": [{"text": text}]}, "finishReason": "STOP"}]})
+
+        transport = httpx.MockTransport(handle)
+
+        def factory(**kwargs: object) -> genai.Client:
+            kwargs["http_options"].async_client_args = {"transport": transport, "trust_env": False}
+            kwargs["http_options"].client_args = {"trust_env": False}
+            return genai.Client(**kwargs)
+
+        client_factory = Mock(side_effect=factory)
+        provider = GeminiProvider(Settings(gemini_api_key=FAKE_KEY, gemini_model="test-user-verified-model"), client_factory=client_factory)
+        return ConversationService(provider), requests, client_factory
+
+    return build
+
+
+def test_three_turn_flow_through_real_sdk_with_in_memory_responses(sdk_conversation: Callable) -> None:
+    def revised_response(data: dict) -> dict:
+        prompt = data["contents"][0]["parts"][0]["text"]
+        revision = json.loads(prompt.split("REVISION_JSON:\n", 1)[1].split("\nUse the following conversation data", 1)[0])
+        return {"entries": [{"entry_id": revision["targets"][0]["entry_id"], **CONTENT, "body": SHORT_BODY}]}
+
+    service, requests, factory = sdk_conversation([
+        {"action": "message", "preferences": PREFERENCES, "stable_instruction": "Keep titles short."},
+        {"action": "generate"},
+        {"entries": [CONTENT]},
+        {"action": "revise", "length_change": "shorter"},
+        revised_response,
+    ])
+    first = asyncio.run(service.handle_turn(ChatTurnRequest(instruction="Save these preferences. Keep titles short.", examples=["A self-authored synthetic reference uses a short introductory paragraph."])))
+    second = asyncio.run(service.handle_turn(ChatTurnRequest(conversation_id=first.snapshot.conversation_id, instruction="Generate one draft."), first.snapshot))
+    third = asyncio.run(service.handle_turn(ChatTurnRequest(conversation_id=second.snapshot.conversation_id, instruction="Make it shorter."), second.snapshot))
+
+    assert [first.response.kind, second.response.kind, third.response.kind] == ["message", "generation", "revision"]
+    assert third.response.entries[0].id == second.response.entries[0].id
+    assert third.response.entries[0].version == 2
+    assert third.response.entries[0].body == SHORT_BODY
+    assert len(requests) == 5
+    assert [data["generationConfig"]["responseJsonSchema"]["title"] for data in requests] == ["TurnPlan", "TurnPlan", "DraftBatch", "TurnPlan", "RevisionBatch"]
+    for data in requests:
+        assert data["generationConfig"]["responseMimeType"] == "application/json"
+        assert "systemInstruction" not in data and "tools" not in data
+        assert FAKE_KEY not in json.dumps(data)
+    assert all(call.kwargs["http_options"].retry_options.attempts == 1 for call in factory.call_args_list)
+
+
+@pytest.mark.parametrize("response", [
+    "not JSON",
+    "null",
+    "[]",
+    {},
+    {"action": "publish"},
+    {"action": "message", "preferences": {"count": "3"}},
+    {"action": "generate", "entry_ids": [str(uuid4())]},
+    {"action": "revise", "preferences": {"tone": "official"}},
+])
+def test_malformed_or_unsupported_turn_plan_returns_safe_error(sdk_conversation: Callable, response: object) -> None:
+    service, requests, _ = sdk_conversation([response])
+    result = asyncio.run(service.handle_turn(ChatTurnRequest(instruction="Use these examples.")))
+    assert result.response.kind == "error" and result.response.error.code == "generation_failed"
+    assert result.snapshot is None
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("defect", ["missing_id", "model_version", "not_synthetic", "not_draft", "malformed"])
+def test_malformed_revision_json_leaves_state_unchanged(sdk_conversation: Callable, defect: str) -> None:
+    entry = GeneratedEntry(id=uuid4(), version=1, **CONTENT)
+    state = ConversationSnapshot(conversation_id=uuid4(), active_entries=[entry], preferences=GenerationPreferences(**PREFERENCES), references=ReferenceCollection(examples=[ReferenceText(id=uuid4(), text="An authorized fictional example.")]))
+    revision = {"entry_id": str(entry.id), **CONTENT, "body": SHORT_BODY}
+    if defect == "missing_id":
+        del revision["entry_id"]
+    elif defect == "model_version":
+        revision["version"] = 99
+    elif defect == "not_synthetic":
+        revision["is_synthetic"] = False
+    elif defect == "not_draft":
+        revision["status"] = "published"
+    data = "broken JSON" if defect == "malformed" else {"entries": [revision]}
+    service, requests, _ = sdk_conversation([{"action": "revise"}, data])
+    result = asyncio.run(service.handle_turn(ChatTurnRequest(conversation_id=state.conversation_id, instruction="Rewrite entry 1."), state))
+    assert result.response.kind == "error" and result.response.error.code == "generation_failed"
+    assert result.snapshot == state and state.active_entries[0].version == 1
+    assert len(requests) == 2
