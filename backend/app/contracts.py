@@ -30,7 +30,7 @@ MessageContent = Annotated[str, StringConstraints(min_length=1, max_length=MAX_M
 SourceUrl = Annotated[HttpUrl, UrlConstraints(max_length=MAX_URL_CHARS, allowed_schemes=["https"])]
 LanguageCode = Annotated[str, StringConstraints(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")]
 ReferenceImportStatus = Literal["not_requested", "pending", "imported", "failed"]
-ErrorCode = Literal["invalid_request", "conversation_not_found", "entry_not_found", "version_conflict", "reference_import_failed", "generation_failed", "rate_limited"]
+ErrorCode = Literal["invalid_request", "conversation_not_found", "entry_not_found", "version_conflict", "reference_import_failed", "generation_failed", "rate_limited", "reference_not_found", "request_in_progress", "submission_conflict", "processing_interrupted", "storage_failed", "access_denied"]
 
 
 class ContractModel(BaseModel):
@@ -128,8 +128,7 @@ class RevisionTarget(ContractModel):
     expected_version: int = Field(ge=1)
 
 
-class ChatTurnRequest(ContractModel):
-    conversation_id: Identifier | None = None
+class ChatTurnInput(ContractModel):
     instruction: Instruction
     examples: list[ReferenceContent] = Field(default_factory=list, max_length=MAX_REFERENCES)
     headlines: list[Headline] = Field(default_factory=list, max_length=MAX_REFERENCES)
@@ -145,12 +144,20 @@ class ChatTurnRequest(ContractModel):
         if self.import_urls and not self.source_urls:
             raise ValueError("Explicit URL import requires at least one source URL.")
         if self.revision_targets:
-            if self.conversation_id is None:
-                raise ValueError("Targeted revisions require an existing conversation ID.")
             if self.generation_count is not None:
                 raise ValueError("A turn cannot request both new entry generation and targeted revisions.")
             if len({target.entry_id for target in self.revision_targets}) != len(self.revision_targets):
                 raise ValueError("Revision targets must have unique entry IDs.")
+        return self
+
+
+class ChatTurnRequest(ChatTurnInput):
+    conversation_id: Identifier | None = None
+
+    @model_validator(mode="after")
+    def validate_conversation_target(self) -> Self:
+        if self.revision_targets and self.conversation_id is None:
+            raise ValueError("Targeted revisions require an existing conversation ID.")
         return self
 
 
