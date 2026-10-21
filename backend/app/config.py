@@ -1,7 +1,11 @@
 from os import getenv
 from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr
+
+
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseModel):
@@ -13,7 +17,8 @@ class Settings(BaseModel):
 
 
 def load_settings() -> Settings:
-    values = {"gemini_api_key": getenv("GEMINI_API_KEY") or None, "gemini_model": getenv("GEMINI_MODEL") or None}
-    if path := getenv("FABLEAI_DATABASE_PATH"):
+    file_values = dotenv_values(ENV_FILE, encoding="utf-8-sig", interpolate=False)
+    values = {"gemini_api_key": getenv("GEMINI_API_KEY", file_values.get("GEMINI_API_KEY")) or None, "gemini_model": getenv("GEMINI_MODEL", file_values.get("GEMINI_MODEL")) or None}
+    if path := getenv("FABLEAI_DATABASE_PATH", file_values.get("FABLEAI_DATABASE_PATH")):
         values["database_path"] = path
     return Settings(**values)

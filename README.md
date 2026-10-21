@@ -33,9 +33,9 @@ The following commands run from `backend/` and do not require virtual environmen
 
 ## Environment configuration
 
-No credentials or environment file are required for the health endpoint. `backend/.env.example` records `GEMINI_MODEL=gemini-3.8-flash` and leaves `GEMINI_API_KEY` empty. Configure the real API key locally through environment variables only when API testing is required. Never put a real key in `.env.example`.
+No credentials or environment file are required for the health endpoint. For local chat generation, configure `GEMINI_API_KEY` and your verified `GEMINI_MODEL` in `backend/.env` or in the terminal that starts FastAPI. `backend/.env.example` is a template only; never put a real key in it.
 
-The configuration module reads process environment variables. It does not automatically load `.env` files. Local `.env` files are ignored, while `.env.example` remains tracked. Keep credentials out of source control.
+The backend loads `backend/.env` at startup, regardless of the working directory. Existing process environment variables take precedence, including explicitly empty values. Only this backend file is loaded; `.env.example` is not loaded. Values are read literally without variable interpolation. Restart FastAPI after changing configuration. Local `.env` files are ignored, while `.env.example` remains tracked. Keep credentials out of source control and frontend code.
 
 Set the model in the terminal that will run the application:
 
