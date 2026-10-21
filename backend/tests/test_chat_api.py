@@ -179,17 +179,22 @@ def test_repeated_submission_replays_exact_result_after_restart(api_factory: Cal
         provider.generate.assert_not_awaited()
 
 
-@pytest.mark.parametrize("failure", [ProviderFailure.RATE_LIMITED, ProviderFailure.INVALID_RESPONSE, ProviderFailure.TIMEOUT])
+@pytest.mark.parametrize("failure", [ProviderFailure.RATE_LIMITED, ProviderFailure.INVALID_RESPONSE, ProviderFailure.TIMEOUT, ProviderFailure.CONNECTION_FAILED, ProviderFailure.UNAVAILABLE])
 def test_provider_failure_is_recorded_as_error_and_replayed_without_new_call(api_factory: Callable, failure: ProviderFailure) -> None:
     with api_factory() as (client, provider):
         conversation_id = create(client)
-        provider.generate.side_effect = GeminiProviderError(failure)
+        status = 503 if failure == ProviderFailure.UNAVAILABLE else None
+        provider.generate.side_effect = GeminiProviderError(failure, http_status=status)
         key = str(uuid4())
         url = f"{BASE}/{conversation_id}/messages"
         body = {"instruction": "Generate one fictional draft.", "examples": [REFERENCE]}
         response = client.post(url, json=body, headers={"Idempotency-Key": key})
         assert response.status_code == (429 if failure == ProviderFailure.RATE_LIMITED else 502)
         assert response.json()["kind"] == "error" and "entries" not in response.json()
+        expected_details = [{"field": "provider_failure", "message": failure.value}]
+        if status is not None:
+            expected_details.append({"field": "provider_http_status", "message": str(status)})
+        assert response.json()["error"]["details"] == expected_details
         assert client.post(url, json=body, headers={"Idempotency-Key": key}).json() == response.json()
         provider.generate.assert_awaited_once()
         history = client.get(url).json()["items"]

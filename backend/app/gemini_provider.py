@@ -1,4 +1,6 @@
 import asyncio
+import socket
+import ssl
 from collections.abc import Callable
 from enum import StrEnum
 from typing import TypeVar
@@ -9,7 +11,7 @@ from google.genai import errors, types
 from pydantic import TypeAdapter
 
 from app.config import Settings
-from app.contracts import ErrorInfo
+from app.contracts import ErrorDetail, ErrorInfo
 
 
 ResponseT = TypeVar("ResponseT")
@@ -25,6 +27,11 @@ class ProviderFailure(StrEnum):
     TIMEOUT = "timeout"
     INVALID_RESPONSE = "invalid_response"
     UNAVAILABLE = "unavailable"
+    CONNECTION_FAILED = "connection_failed"
+    DNS_FAILED = "dns_failed"
+    TLS_FAILED = "tls_failed"
+    PROXY_FAILED = "proxy_failed"
+    TRANSPORT_FAILED = "transport_failed"
     REQUEST_FAILED = "request_failed"
 
 
@@ -35,15 +42,23 @@ ERROR_MESSAGES = {
     ProviderFailure.RATE_LIMITED: "Gemini quota or rate limit was reached. Wait before trying again; no retry was made.",
     ProviderFailure.TIMEOUT: "The Gemini request timed out. No retry was made.",
     ProviderFailure.INVALID_RESPONSE: "Gemini returned an incomplete or invalid structured response.",
-    ProviderFailure.UNAVAILABLE: "Gemini is currently unreachable or unavailable. No retry was made.",
+    ProviderFailure.UNAVAILABLE: "The Gemini endpoint returned a server error. Wait before sending a new message; no retry was made.",
+    ProviderFailure.CONNECTION_FAILED: "The backend could not connect to Gemini. Check the backend machine's network, firewall, or proxy connection. No retry was made.",
+    ProviderFailure.DNS_FAILED: "The backend could not resolve Gemini's hostname. Check the backend machine's DNS and network connection. No retry was made.",
+    ProviderFailure.TLS_FAILED: "The backend could not verify Gemini's TLS certificate. Check the system clock and trusted certificates or HTTPS proxy. No retry was made.",
+    ProviderFailure.PROXY_FAILED: "The backend could not establish its proxy connection to Gemini. Check the backend's proxy configuration. No retry was made.",
+    ProviderFailure.TRANSPORT_FAILED: "The network exchange with Gemini failed before a usable response was received. Check the backend connection and try later. No retry was made.",
     ProviderFailure.REQUEST_FAILED: "The Gemini request could not be completed. No retry was made.",
 }
 
 
 class GeminiProviderError(Exception):
-    def __init__(self, reason: ProviderFailure) -> None:
+    def __init__(self, reason: ProviderFailure, *, http_status: int | None = None) -> None:
         self.reason = reason
-        self.error = ErrorInfo(code="rate_limited" if reason == ProviderFailure.RATE_LIMITED else "generation_failed", message=ERROR_MESSAGES[reason])
+        details = [ErrorDetail(field="provider_failure", message=reason.value)]
+        if type(http_status) is int and 100 <= http_status <= 599:
+            details.append(ErrorDetail(field="provider_http_status", message=str(http_status)))
+        self.error = ErrorInfo(code="rate_limited" if reason == ProviderFailure.RATE_LIMITED else "generation_failed", message=ERROR_MESSAGES[reason], details=details)
         super().__init__(self.error.message)
 
 
@@ -84,11 +99,11 @@ class GeminiProvider:
         except GeminiProviderError:
             raise
         except errors.APIError as error:
-            raise GeminiProviderError(self._api_failure(error)) from None
+            raise GeminiProviderError(self._api_failure(error), http_status=error.code) from None
         except (TimeoutError, httpx.TimeoutException):
             raise GeminiProviderError(ProviderFailure.TIMEOUT) from None
-        except httpx.RequestError:
-            raise GeminiProviderError(ProviderFailure.UNAVAILABLE) from None
+        except httpx.RequestError as error:
+            raise GeminiProviderError(self._transport_failure(error)) from None
         except (ValueError, TypeError, AttributeError):
             raise GeminiProviderError(ProviderFailure.INVALID_RESPONSE) from None
         except Exception:
@@ -111,6 +126,23 @@ class GeminiProvider:
         if 500 <= status < 600:
             return ProviderFailure.UNAVAILABLE
         return ProviderFailure.REQUEST_FAILED
+
+    @staticmethod
+    def _transport_failure(error: httpx.RequestError) -> ProviderFailure:
+        cause: BaseException | None = error
+        seen = set()
+        while cause is not None and id(cause) not in seen and len(seen) < 10:
+            seen.add(id(cause))
+            if isinstance(cause, ssl.SSLCertVerificationError):
+                return ProviderFailure.TLS_FAILED
+            if isinstance(cause, socket.gaierror):
+                return ProviderFailure.DNS_FAILED
+            cause = cause.__cause__ or cause.__context__
+        if isinstance(error, httpx.ProxyError):
+            return ProviderFailure.PROXY_FAILED
+        if isinstance(error, httpx.ConnectError):
+            return ProviderFailure.CONNECTION_FAILED
+        return ProviderFailure.TRANSPORT_FAILED
 
     @staticmethod
     def _response_text(response: types.GenerateContentResponse) -> str:

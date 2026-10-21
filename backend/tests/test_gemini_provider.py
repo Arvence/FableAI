@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import socket
+import ssl
 import traceback
 from collections.abc import Callable
 from unittest.mock import AsyncMock, MagicMock, Mock
@@ -188,6 +190,10 @@ def test_maps_api_failures_without_retry_or_sensitive_details(provider_factory: 
     error = raised.value
     assert error.reason == reason
     assert error.error.code == ("rate_limited" if status == 429 else "generation_failed")
+    assert [detail.model_dump() for detail in error.error.details] == [
+        {"field": "provider_failure", "message": reason.value},
+        {"field": "provider_http_status", "message": str(status)},
+    ]
     assert len(requests) == 1
     output = ErrorResponse(kind="error", error=error.error).model_dump_json()
     output += str(error) + repr(error) + "".join(traceback.format_exception(error)) + caplog.text
@@ -223,8 +229,11 @@ def test_maps_invalid_api_key_and_handles_untrusted_error_details(provider_facto
     (httpx.ReadTimeout, ProviderFailure.TIMEOUT),
     (httpx.WriteTimeout, ProviderFailure.TIMEOUT),
     (httpx.PoolTimeout, ProviderFailure.TIMEOUT),
-    (httpx.ConnectError, ProviderFailure.UNAVAILABLE),
-    (httpx.ReadError, ProviderFailure.UNAVAILABLE),
+    (httpx.ConnectError, ProviderFailure.CONNECTION_FAILED),
+    (httpx.ReadError, ProviderFailure.TRANSPORT_FAILED),
+    (httpx.WriteError, ProviderFailure.TRANSPORT_FAILED),
+    (httpx.RemoteProtocolError, ProviderFailure.TRANSPORT_FAILED),
+    (httpx.ProxyError, ProviderFailure.PROXY_FAILED),
 ])
 def test_maps_transport_errors_without_retry(provider_factory: Callable, exception_type: type[Exception], reason: ProviderFailure) -> None:
     def fail(request: httpx.Request) -> httpx.Response:
@@ -235,6 +244,44 @@ def test_maps_transport_errors_without_retry(provider_factory: Callable, excepti
         asyncio.run(provider.generate(PROMPT, RESPONSE_ADAPTER))
 
     assert raised.value.reason == reason
+    assert [detail.model_dump() for detail in raised.value.error.details] == [{"field": "provider_failure", "message": reason.value}]
+    assert FAKE_KEY not in "".join(traceback.format_exception(raised.value))
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(("cause_type", "reason"), [(ssl.SSLCertVerificationError, ProviderFailure.TLS_FAILED), (socket.gaierror, ProviderFailure.DNS_FAILED)])
+@pytest.mark.parametrize("chain_attribute", ["__cause__", "__context__"])
+def test_classifies_nested_connection_causes_without_exposing_details(provider_factory: Callable, cause_type: type[Exception], reason: ProviderFailure, chain_attribute: str) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        cause = cause_type(f"{FAKE_KEY}; {PROMPT}")
+        wrapper = OSError(FAKE_KEY)
+        setattr(wrapper, chain_attribute, cause)
+        error = httpx.ConnectError(PROMPT)
+        setattr(error, chain_attribute, wrapper)
+        raise error
+
+    provider, requests, _ = provider_factory(fail)
+    with pytest.raises(GeminiProviderError) as raised:
+        asyncio.run(provider.generate(PROMPT, RESPONSE_ADAPTER))
+
+    assert raised.value.reason == reason
+    assert [detail.model_dump() for detail in raised.value.error.details] == [{"field": "provider_failure", "message": reason.value}]
+    output = raised.value.error.model_dump_json() + "".join(traceback.format_exception(raised.value))
+    assert FAKE_KEY not in output and PROMPT not in output
+    assert len(requests) == 1
+
+
+def test_cyclic_connection_cause_is_bounded(provider_factory: Callable) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        error = httpx.ConnectError(FAKE_KEY)
+        error.__cause__ = error
+        raise error
+
+    provider, requests, _ = provider_factory(fail)
+    with pytest.raises(GeminiProviderError) as raised:
+        asyncio.run(provider.generate(PROMPT, RESPONSE_ADAPTER))
+
+    assert raised.value.reason == ProviderFailure.CONNECTION_FAILED
     assert FAKE_KEY not in "".join(traceback.format_exception(raised.value))
     assert len(requests) == 1
 
