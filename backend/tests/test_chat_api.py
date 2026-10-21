@@ -330,6 +330,10 @@ def test_local_only_hosts_origins_and_peer_addresses(api_factory: Callable, tmp_
         assert client.post(BASE, headers={"Origin": "https://untrusted.example"}).status_code == 403
         assert client.get(BASE, headers={"Host": "public.example"}).status_code == 403
         assert client.post(BASE, headers={"Origin": "http://127.0.0.1"}).status_code == 201
+        for origin in ("http://127.0.0.1:5173", "http://localhost:5173"):
+            assert client.post(BASE, headers={"Origin": origin}).status_code == 201
+        for origin in ("http://127.0.0.1:5174", "http://localhost:5173.evil.example", "null"):
+            assert client.post(BASE, headers={"Origin": origin}).status_code == 403
     with TestClient(create_app(Settings(database_path=tmp_path / "remote.sqlite3"), provider=mocked_provider()), base_url="http://127.0.0.1", client=("203.0.113.8", 50000)) as client:
         assert client.get(BASE).status_code == 403
 

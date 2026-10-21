@@ -38,6 +38,8 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+test-results/
+playwright-report/
 
 # Local SQLite databases and sidecars
 *.db

@@ -56,8 +56,9 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
         if not _loopback(request.url.hostname) or request.client is None or not _loopback(request.client.host):
             return _error(403, "access_denied", "This API accepts local loopback requests only.")
         origin = request.headers.get("origin")
-        if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
-            return _error(403, "access_denied", "Cross-origin requests are not enabled.")
+        allowed_origins = {f"{request.url.scheme}://{request.url.netloc}", "http://127.0.0.1:5173", "http://localhost:5173"}
+        if origin and origin not in allowed_origins:
+            return _error(403, "access_denied", "This origin is not allowed to access the local API.")
         return await call_next(request)
 
     @application.exception_handler(RepositoryError)
