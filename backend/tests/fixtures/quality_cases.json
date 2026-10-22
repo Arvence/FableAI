@@ -1,0 +1,483 @@
+{
+  "provenance": "Self-authored fictional references and hand-authored mock outputs for offline tests. No scraped text, live model outputs, or model-quality ratings.",
+  "cases": [
+    {
+      "id": "en-brief",
+      "reference": "In the fictional village of Brindlewick, a ceramic stall displays tiny blue cups. The display closes at dusk.",
+      "format": "paragraph",
+      "topic_terms": [
+        "textile"
+      ],
+      "constraints": {
+        "topic": "An imaginary textile exhibition",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 60,
+        "max_body_chars": 220
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Textile Room Adds Floating Looms",
+        "body": "An imaginary textile room in Vellum Bay suspends woven ribbons above low tables. Guests arrange soft loops into changing patterns.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0
+    },
+    {
+      "id": "en-bullets",
+      "reference": "Fictional lantern session:\n- Fold an amber paper shell.\n- Hang the finished shape beside the invented canal.",
+      "format": "bullets",
+      "topic_terms": [
+        "seed"
+      ],
+      "constraints": {
+        "topic": "A fictional seed workshop",
+        "count": 1,
+        "tone": "informative",
+        "category": "announcement",
+        "language": "en",
+        "min_body_chars": 60,
+        "max_body_chars": 280
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Seed Workshop Opens Pattern Stations",
+        "body": "Imaginary seed workshop:\n- Sort silver pods by texture.\n- Build a spiral tray for a pretend rooftop nursery.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 2
+    },
+    {
+      "id": "en-formal",
+      "reference": "Within the invented county of Periwold, participants attend a scheduled compass workshop. The procedure introduces a set of wooden direction markers for a fictional walking route.\n\nEach group receives a blank map and records its preferred arrangement. The exercise ends with a quiet comparison of the completed routes.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "archive"
+      ],
+      "constraints": {
+        "topic": "An invented astronomical archive",
+        "count": 1,
+        "tone": "formal",
+        "category": "announcement",
+        "language": "en",
+        "min_body_chars": 180,
+        "max_body_chars": 500
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Astronomical Archive Expands Its Index",
+        "body": "A fabricated astronomical archive has allocated a reading room to star charts made from stitched cloth. Visitors examine patterns that belong to an entirely invented sky.\n\nThe catalogue groups these imaginary constellations by shape. A rotating display presents a different selection each afternoon.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0
+    },
+    {
+      "id": "tr-brief",
+      "reference": "Hayali Laleova köyünde küçük bir seramik masası kuruldu. Ziyaretçiler renkli tabakları boylarına göre diziyor.",
+      "format": "paragraph",
+      "topic_terms": [
+        "bulut"
+      ],
+      "constraints": {
+        "topic": "A fictional cloud exhibition",
+        "count": 1,
+        "tone": "informative",
+        "category": "news",
+        "language": "tr",
+        "min_body_chars": 60,
+        "max_body_chars": 240
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Bulut Galerisine Yeni Bir Oda",
+        "body": "Kurgusal Pusukent galerisinde yün bulut biçimleri tavana asıldı. Konuklar renkli ipleri oynatarak hayali bir gökyüzü düzenliyor.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "tr",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0
+    },
+    {
+      "id": "tr-bullets",
+      "reference": "Hayali kuş yuvası atölyesi:\n- Mor kartonları katla.\n- Minik çatıyı renkli pullarla süsle.",
+      "format": "bullets",
+      "topic_terms": [
+        "tekne"
+      ],
+      "constraints": {
+        "topic": "An imaginary paper boat activity",
+        "count": 1,
+        "tone": "playful",
+        "category": "announcement",
+        "language": "tr",
+        "min_body_chars": 70,
+        "max_body_chars": 300
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Tekne Atölyesinde Renkli Yelkenler",
+        "body": "Kurgusal tekne şenliği başlıyor!\n- Köpük gövdeye turuncu bir yelken tak.\n- Minyatür salı kuru bir kum yolunda gezdir.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "tr",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 2
+    },
+    {
+      "id": "tr-paragraphs",
+      "reference": "Hayali İplikdere kasabasında ahşap kuklalar için küçük bir sahne hazırlandı. Çalışmaya katılanlar farklı renklerde perdeler seçiyor.\n\nOyun sırasında gerçek kişileri temsil etmeyen karakterler kullanılıyor. Etkinlik, kurmaca bir masalın sonunu yeniden düzenleme denemesiyle bitiyor.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "bahçe"
+      ],
+      "constraints": {
+        "topic": "A fictional puzzle garden",
+        "count": 1,
+        "tone": "neutral",
+        "category": "announcement",
+        "language": "tr",
+        "min_body_chars": 160,
+        "max_body_chars": 450
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Bahçe Yollarına Dönen İşaretler",
+        "body": "Kurgusal Düğümova bahçesinde taş yollar yerine dönen renk diskleri yerleştirildi. Her disk, ziyaretçileri farklı bir hayali bilmeceye yönlendiriyor.\n\nBahçe boyunca küçük ahşap köprüler uzanıyor. Konuklar bu uydurma rotayı kendi seçtikleri sırayla tamamlıyor.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "tr",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0
+    },
+    {
+      "id": "es-brief",
+      "reference": "En la aldea inventada de Brumilla se presenta una colección de campanas de arcilla. La sala recibe grupos pequeños.",
+      "format": "paragraph",
+      "topic_terms": [
+        "mineral"
+      ],
+      "constraints": {
+        "topic": "A fictional mineral exhibition",
+        "count": 1,
+        "tone": "formal",
+        "category": "news",
+        "language": "es",
+        "min_body_chars": 60,
+        "max_body_chars": 250
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Sala Mineral Presenta Formas de Papel",
+        "body": "Un museo ficticio de Nacaral destina una sala mineral a figuras hechas de papel. El recorrido organiza las piezas por sus contornos imaginarios.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "es",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0
+    },
+    {
+      "id": "es-numbered",
+      "reference": "Taller ficticio de mosaicos:\n1. Elige tres piezas de cartón.\n2. Coloca las figuras junto al estanque imaginario.",
+      "format": "numbered",
+      "topic_terms": [
+        "cometas"
+      ],
+      "constraints": {
+        "topic": "An imaginary kite activity",
+        "count": 1,
+        "tone": "informative",
+        "category": "announcement",
+        "language": "es",
+        "min_body_chars": 80,
+        "max_body_chars": 310
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Taller de Cometas Abre Dos Mesas",
+        "body": "Actividad de cometas en una ciudad inventada:\n1. Une varillas de espuma con cintas violetas.\n2. Prueba el diseño sobre una maqueta de montañas.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "es",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 2
+    },
+    {
+      "id": "es-paragraphs",
+      "reference": "En el puerto imaginario de Velazul, unos peces de tela ensayan un baile muy lento. Cada aleta lleva un pequeño botón de colores.\n\nLos visitantes cambian el escenario con cajas vacías. Una nube de papel pone fin a esta función completamente inventada.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "relojes"
+      ],
+      "constraints": {
+        "topic": "A fictional clock parade",
+        "count": 1,
+        "tone": "playful",
+        "category": "announcement",
+        "language": "es",
+        "min_body_chars": 160,
+        "max_body_chars": 440
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Desfile de Relojes con Sombreros",
+        "body": "En un barrio ficticio de Tizaluna, los relojes de juguete estrenan sombreros de hojas. Sus agujas dibujan espirales sobre carros diminutos.\n\nEl desfile cruza un puente de cartón. Cada parada propone un ritmo distinto para este paseo alegre e imaginario.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "es",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0
+    },
+    {
+      "id": "de-brief",
+      "reference": "Im erfundenen Dorf Kieselruh öffnet ein Raum für bemalte Steine. Kleine Gruppen ordnen die Muster auf runden Tischen.",
+      "format": "paragraph",
+      "topic_terms": [
+        "bandbibliothek"
+      ],
+      "constraints": {
+        "topic": "An imaginary ribbon library",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "de",
+        "min_body_chars": 60,
+        "max_body_chars": 260
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Bandbibliothek Erprobt Neue Regale",
+        "body": "Eine fiktive Bandbibliothek in Fadenort zeigt geflochtene Streifen auf schwebenden Rahmen. Gäste verbinden Farben zu erfundenen Geschichten.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "de",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0
+    },
+    {
+      "id": "de-bullets",
+      "reference": "Fiktive Modellbauübung:\n- Teilnehmende wählen eine leichte Holzplatte.\n- Anschließend werden die Formen in einer Reihe angeordnet.",
+      "format": "bullets",
+      "topic_terms": [
+        "schatten"
+      ],
+      "constraints": {
+        "topic": "A fictional shadow workshop",
+        "count": 1,
+        "tone": "formal",
+        "category": "announcement",
+        "language": "de",
+        "min_body_chars": 80,
+        "max_body_chars": 310
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Schatten Werkstatt Ergänzt Zwei Stationen",
+        "body": "Erfundenes Schatten Programm:\n- Eine Scheibe projiziert bewegliche Dreiecke auf Stoff.\n- Ein zweiter Tisch verbindet die Konturen zu abstrakten Bildern.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "de",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 2
+    },
+    {
+      "id": "de-paragraphs",
+      "reference": "In der erfundenen Stadt Federhain entsteht ein kleiner Pavillon für Papierpflanzen. Verschiedene Blattformen werden auf niedrigen Podesten gezeigt.\n\nEin Rundweg führt zu drei Arbeitstischen. Dort können Gäste die Anordnung der künstlichen Zweige verändern.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "klangobstgarten"
+      ],
+      "constraints": {
+        "topic": "A fictional sound orchard",
+        "count": 1,
+        "tone": "informative",
+        "category": "announcement",
+        "language": "de",
+        "min_body_chars": 170,
+        "max_body_chars": 460
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Klangobstgarten Erhält Bewegliche Bögen",
+        "body": "Ein fiktiver Klangobstgarten in Summertal verbindet hohle Holzfrüchte mit schmalen Bögen. Jede Bewegung erzeugt einen leisen erfundenen Rhythmus.\n\nEin markierter Pfad führt durch die Modellbäume. Gäste ordnen die Formen neu und vergleichen ihre unterschiedlichen Klangmuster.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "de",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0
+    },
+    {
+      "id": "fr-brief",
+      "reference": "Dans le hameau inventé de Plumelle, des chapeaux en carton dansent sur une table. Une petite roue anime ce drôle de décor.",
+      "format": "paragraph",
+      "topic_terms": [
+        "rubans"
+      ],
+      "constraints": {
+        "topic": "A fictional ribbon bakery",
+        "count": 1,
+        "tone": "playful",
+        "category": "news",
+        "language": "fr",
+        "min_body_chars": 60,
+        "max_body_chars": 260
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Des Rubans Tournent au Four Imaginaire",
+        "body": "Une boulangerie fictive de Filamont façonne des rubans en tissu en spirales joyeuses. Les plateaux roulent sur un circuit de bois coloré.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "fr",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0
+    },
+    {
+      "id": "fr-numbered",
+      "reference": "Exercice fictif de classement:\n1. Les participants reçoivent des cartes vierges.\n2. Chaque groupe présente un arrangement de formes.",
+      "format": "numbered",
+      "topic_terms": [
+        "observatoire"
+      ],
+      "constraints": {
+        "topic": "A fictional miniature observatory",
+        "count": 1,
+        "tone": "formal",
+        "category": "announcement",
+        "language": "fr",
+        "min_body_chars": 80,
+        "max_body_chars": 320
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Observatoire Miniature Ajoute Deux Modules",
+        "body": "Programme pour un observatoire imaginaire:\n1. Un disque porte des lunes découpées dans du liège.\n2. Une règle mobile compare leurs positions dans un ciel inventé.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "fr",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 2
+    },
+    {
+      "id": "fr-paragraphs",
+      "reference": "Dans la ville inventée de Clairbrume, une salle accueille des maquettes de ponts. Chaque structure associe des couleurs douces et de larges courbes.\n\nLe parcours comprend trois tables de travail. Les visiteurs déplacent les éléments pour composer des passages entièrement imaginaires.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "musée"
+      ],
+      "constraints": {
+        "topic": "An imaginary thread museum",
+        "count": 1,
+        "tone": "neutral",
+        "category": "announcement",
+        "language": "fr",
+        "min_body_chars": 180,
+        "max_body_chars": 470
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Musée du Fil Installe des Roues Mobiles",
+        "body": "Un musée fictif de Trameval présente des roues entourées de fils brillants. La rotation lente des cadres dessine des chemins au milieu de la salle.\n\nLes visiteurs choisissent un point de départ sur une carte vide. Ils composent ensuite un itinéraire dans ce paysage entièrement inventé.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "fr",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0
+    }
+  ],
+  "conversation": {
+    "reference_ids": [
+      "en-brief",
+      "en-bullets",
+      "en-formal"
+    ],
+    "initial_entry_ids": [
+      "en-brief",
+      "en-bullets"
+    ],
+    "more_entry_id": "en-formal",
+    "preferences": {
+      "topic": "Imaginary exhibitions and workshops",
+      "count": 2,
+      "tone": "neutral",
+      "category": "announcement",
+      "language": "en",
+      "min_body_chars": 60,
+      "max_body_chars": 500
+    },
+    "stable_instruction": "Keep subjects imaginary.",
+    "opening_instruction": "Generate two fictional drafts. Keep subjects imaginary.",
+    "clarification_answer": "Use a neutral tone in English, announcement category, and 60 to 500 body characters.",
+    "more_instruction": "Generate one more with a different subject.",
+    "ambiguous_revision": "Make it shorter.",
+    "selected_revision": "Entry 2 only.",
+    "revision_body": "In an imaginary seed workshop, silver pods form a spiral on a small rooftop tray."
+  }
+}
