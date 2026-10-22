@@ -30,7 +30,7 @@ MessageContent = Annotated[str, StringConstraints(min_length=1, max_length=MAX_M
 SourceUrl = Annotated[HttpUrl, UrlConstraints(max_length=MAX_URL_CHARS, allowed_schemes=["https"])]
 LanguageCode = Annotated[str, StringConstraints(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")]
 ReferenceImportStatus = Literal["not_requested", "pending", "imported", "failed"]
-ErrorCode = Literal["invalid_request", "conversation_not_found", "entry_not_found", "version_conflict", "reference_import_failed", "generation_failed", "rate_limited", "reference_not_found", "request_in_progress", "submission_conflict", "processing_interrupted", "storage_failed", "access_denied"]
+ErrorCode = Literal["invalid_request", "conversation_not_found", "entry_not_found", "version_conflict", "reference_import_failed", "generation_failed", "rate_limited", "reference_not_found", "request_in_progress", "submission_conflict", "processing_interrupted", "storage_failed", "access_denied", "internal_error"]
 
 
 class ContractModel(BaseModel):

@@ -11,7 +11,7 @@ from app.conversation_contracts import ConversationResponse
 from app.conversation_repository import SavedResponse
 
 
-router = APIRouter(prefix="/api/v1/conversations", responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+router = APIRouter(prefix="/api/v1/conversations", responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 408: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 PageLimit = Annotated[int, Query(ge=1, le=100)]
 PageOffset = Annotated[int, Query(ge=0, le=1_000_000)]
 SubmissionHeader = Annotated[UUID4 | None, Header(alias="Idempotency-Key")]

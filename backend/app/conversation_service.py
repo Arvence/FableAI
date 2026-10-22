@@ -128,7 +128,10 @@ class ConversationService:
             info = error.error if isinstance(error, GenerationRejected) else ErrorInfo(code="invalid_request", message="The chat request or conversation snapshot is invalid.")
             return ConversationTurnResult(response=ErrorResponse(kind="error", conversation_id=conversation_id, message_id=uuid4(), error=info), snapshot=original)
         try:
-            return await self._handle_validated_turn(request, working)
+            result = await self._handle_validated_turn(request, working)
+            if isinstance(result.response, ErrorResponse):
+                return ConversationTurnResult(response=result.response, snapshot=original)
+            return result
         except (GenerationRejected, GeminiProviderError) as error:
             info = error.error
         except ValidationError:
@@ -209,7 +212,7 @@ class ConversationService:
         generation_request = _generation_request(snapshot, count=preferences.count)
         response = await self._generation.generate(generation_request, snapshot.references, context=context, existing_entries=snapshot.active_entries)
         if isinstance(response, ErrorResponse):
-            raise GenerationRejected(response.error.code, response.error.message)
+            return ConversationTurnResult(response=response, snapshot=None)
         snapshot.active_entries.extend(response.entries)
         snapshot.pending = None
         return _finish(snapshot, request, response)
