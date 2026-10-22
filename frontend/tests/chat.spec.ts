@@ -134,33 +134,40 @@ test('validation errors preserve input and show backend JSON', async ({ page }) 
   await expect(page.getByLabel('Headlines — one per line')).toHaveValue('An eleventh fictional headline');
 });
 
-test('uncertain submission survives reload and retries the same idempotency key', async ({ page }) => {
-  let key: string | undefined;
-  let messageId: string | undefined;
-  await page.route('**/messages', async route => {
-    if (route.request().method() !== 'POST') return route.continue();
-    key = route.request().headers()['idempotency-key'];
-    const result = await route.fetch();
-    messageId = (await result.json()).message_id;
-    await route.abort('failed');
+for (const failure of ['connection loss', 'internal error'] as const) {
+  test(`uncertain submission after ${failure} retries the same idempotency key after reload`, async ({ page }) => {
+    let key: string | undefined;
+    let messageId: string | undefined;
+    await page.route('**/messages', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      key = route.request().headers()['idempotency-key'];
+      const result = await route.fetch();
+      messageId = (await result.json()).message_id;
+      if (failure === 'connection loss') {
+        await route.abort('failed');
+      } else {
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ kind: 'error', conversation_id: null, message_id: null, error: { code: 'internal_error', message: 'The request could not be completed.', details: [] } }) });
+      }
+    });
+    await page.getByLabel('Your instruction').fill('Save a slow preference.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Retry same submission' })).toBeVisible();
+    const calls = (await (await page.request.get('/api/v1/test-state')).json()).provider_calls;
+    await page.unroute('**/messages');
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Retry same submission' })).toBeVisible();
+    const replay = page.waitForResponse(value => value.url().endsWith('/messages') && value.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Retry same submission' }).click();
+    const result = await replay;
+    expect(result.request().headers()['idempotency-key']).toBe(key);
+    expect((await result.json()).message_id).toBe(messageId);
+    await expect(page.getByLabel('Your instruction')).toBeEnabled();
+    await expect(page.getByRole('article', { name: 'You message', exact: true })).toHaveCount(1);
+    expect((await (await page.request.get('/api/v1/test-state')).json()).provider_calls).toBe(calls);
   });
-  await page.getByLabel('Your instruction').fill('Save a slow preference.');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Retry same submission' })).toBeVisible();
-  const calls = (await (await page.request.get('/api/v1/test-state')).json()).provider_calls;
-  await page.unroute('**/messages');
-  await page.reload();
-  await expect(page.getByRole('button', { name: 'Retry same submission' })).toBeVisible();
-  const replay = page.waitForResponse(value => value.url().endsWith('/messages') && value.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Retry same submission' }).click();
-  const result = await replay;
-  expect(result.request().headers()['idempotency-key']).toBe(key);
-  expect((await result.json()).message_id).toBe(messageId);
-  await expect(page.getByLabel('Your instruction')).toBeEnabled();
-  await expect(page.getByRole('article', { name: 'You message', exact: true })).toHaveCount(1);
-  expect((await (await page.request.get('/api/v1/test-state')).json()).provider_calls).toBe(calls);
-});
+}
+
 
 test('mobile layout and keyboard input preserve multiline text and IME composition', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -190,4 +197,14 @@ test('mobile layout and keyboard input preserve multiline text and IME compositi
 test('local proxy accepts only the intended browser origins', async ({ request }) => {
   expect((await request.post(base, { headers: { Origin: 'http://127.0.0.1:5173' } })).status()).toBe(201);
   expect((await request.post(base, { headers: { Origin: 'https://untrusted.example' } })).status()).toBe(403);
+});
+
+test('untrusted message markup is displayed as text without browser side effects', async ({ page }) => {
+  const markup = '<img src=x onerror="document.body.dataset.untrustedExecuted=1">';
+  const response = await send(page, markup);
+  expect(response.status()).toBe(200);
+  const message = page.getByRole('article', { name: 'You message', exact: true });
+  await expect(message).toContainText(markup);
+  await expect(message.locator('img')).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.dataset.untrustedExecuted)).toBeUndefined();
 });

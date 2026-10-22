@@ -123,7 +123,8 @@ export function App() {
       const problem = failure(reason);
       setError(problem);
       const code = problem.response?.error.code;
-      if (problem.response && code !== 'request_in_progress' && !(code === 'storage_failed' && !problem.response.message_id)) {
+      const uncertain = (code === 'storage_failed' || code === 'internal_error') && !problem.response?.message_id;
+      if (problem.response && code !== 'request_in_progress' && !uncertain) {
         setPending(null);
         writeSession(`pending:${selected}`, null);
       }
