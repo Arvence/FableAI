@@ -16,6 +16,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new ApiError('Cannot reach the local backend. Check that it is running, then try again.');
   }
+  if (response.ok && response.status === 204) return undefined as T;
   let data: unknown;
   try {
     data = await response.json();

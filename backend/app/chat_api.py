@@ -2,7 +2,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import UUID4
 
 from app.api_contracts import ConversationDetail, ConversationPage, ImportResponse, ImportSubmission, MessagePage, ReviewPage, ReviewRequest, StoredEntry, VersionPage
@@ -34,6 +34,12 @@ def list_conversations(request: Request, limit: PageLimit = 20, offset: PageOffs
 @router.get("/{conversation_id}", response_model=ConversationDetail)
 def get_conversation(conversation_id: UUID4, request: Request) -> ConversationDetail:
     return request.app.state.repository.get(conversation_id)
+
+
+@router.delete("/{conversation_id}", status_code=204, response_class=Response)
+def delete_conversation(conversation_id: UUID4, request: Request) -> Response:
+    request.app.state.repository.delete(conversation_id)
+    return Response(status_code=204)
 
 
 @router.post("/{conversation_id}/messages", response_model=ConversationResponse)

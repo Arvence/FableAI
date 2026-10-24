@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api_contracts import ConversationDetail, ConversationPage, ConversationSummary, ImportResponse, MessagePage, ReviewDecision, ReviewPage, ReviewRequest, StoredEntry, StoredMessage, VersionPage
@@ -83,6 +83,19 @@ class ConversationRepository:
             session.flush()
             conversation_id = UUID(row.id)
         return self.get(conversation_id)
+
+    def delete(self, conversation_id: UUID) -> None:
+        with self._write() as session:
+            row = self._conversation(session, conversation_id)
+            self._recover(session, row)
+            if row.processing_id is not None:
+                raise RepositoryError("request_in_progress", "Wait for the current conversation request to finish before deleting this chat.")
+            entry_ids = select(EntryRow.id).where(EntryRow.conversation_id == row.id)
+            session.execute(delete(ReviewRow).where(ReviewRow.entry_id.in_(entry_ids)))
+            session.execute(delete(EntryVersionRow).where(EntryVersionRow.entry_id.in_(entry_ids)))
+            for model in (EntryRow, ReferenceRow, MessageRow, SubmissionRow):
+                session.execute(delete(model).where(model.conversation_id == row.id))
+            session.delete(row)
 
     def list_conversations(self, limit: int, offset: int) -> ConversationPage:
         with Session(self.database.engine) as session:

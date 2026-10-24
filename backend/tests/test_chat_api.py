@@ -354,3 +354,101 @@ def test_openapi_describes_chat_variants_and_bounded_history_routes(api_factory:
         assert any(parameter["name"] == "Idempotency-Key" for parameter in route["post"]["parameters"])
         assert BASE + "/{conversation_id}/entries/{entry_id}/reviews" in schema["paths"]
         provider.generate.assert_not_awaited()
+
+
+def test_delete_removes_all_saved_chat_data_and_preserves_other_chats(api_factory: Callable) -> None:
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import Session
+
+    from app.storage_models import ConversationRow, EntryRow, EntryVersionRow, MessageRow, ReferenceRow, ReviewRow, SubmissionRow
+
+    models = (ConversationRow, EntryRow, EntryVersionRow, MessageRow, ReferenceRow, ReviewRow, SubmissionRow)
+    with api_factory() as (client, provider):
+        conversation_id, entries = seed(client, provider)
+        review = client.patch(f"{BASE}/{conversation_id}/entries/{entries[0]['id']}", json={"status": "accepted", "expected_version": 1})
+        assert review.status_code == 200
+        other_id, _ = seed(client, provider)
+        other_detail = client.get(f"{BASE}/{other_id}").json()
+        other_messages = client.get(f"{BASE}/{other_id}/messages").json()
+        provider.generate.reset_mock()
+
+        response = client.delete(f"{BASE}/{conversation_id}")
+
+        assert response.status_code == 204 and response.content == b""
+        assert client.get(f"{BASE}/{conversation_id}").status_code == 404
+        assert client.get(f"{BASE}/{conversation_id}/messages").status_code == 404
+        assert client.get(f"{BASE}/{other_id}").json() == other_detail
+        assert client.get(f"{BASE}/{other_id}/messages").json() == other_messages
+        assert [item["conversation_id"] for item in client.get(BASE).json()["items"]] == [other_id]
+        with Session(client.app.state.repository.database.engine) as session:
+            counts = [session.scalar(select(func.count()).select_from(model)) for model in models]
+            assert counts == [1, 2, 2, 4, 1, 0, 2]
+        assert client.delete(f"{BASE}/{other_id}").status_code == 204
+        with Session(client.app.state.repository.database.engine) as session:
+            assert all(session.scalar(select(func.count()).select_from(model)) == 0 for model in models)
+        provider.generate.assert_not_awaited()
+    with api_factory() as (client, provider):
+        assert client.get(BASE).json()["items"] == []
+        assert client.get(f"{BASE}/{conversation_id}").status_code == 404
+        provider.generate.assert_not_awaited()
+
+
+def test_delete_rejects_active_requests_but_allows_expired_requests(api_factory: Callable) -> None:
+    from app.contracts import ChatTurnInput
+
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        repository = client.app.state.repository
+        now = datetime.now(UTC)
+        repository._clock = lambda: now
+        repository.begin(UUID(conversation_id), uuid4(), "message", ChatTurnInput(instruction="A pending turn.").model_dump(mode="json"))
+
+        blocked = client.delete(f"{BASE}/{conversation_id}")
+
+        assert blocked.status_code == 409
+        assert blocked.json()["error"]["code"] == "request_in_progress"
+        assert client.get(f"{BASE}/{conversation_id}").json()["processing"] is True
+        assert len(client.get(f"{BASE}/{conversation_id}/messages").json()["items"]) == 1
+        repository._clock = lambda: now + timedelta(seconds=PROCESSING_LEASE_SECONDS + 1)
+        assert client.delete(f"{BASE}/{conversation_id}").status_code == 204
+        assert client.get(BASE).json()["items"] == []
+        provider.generate.assert_not_awaited()
+
+
+def test_delete_rolls_back_related_data_on_storage_failure(api_factory: Callable) -> None:
+    from sqlalchemy import event
+
+    with api_factory() as (client, provider):
+        conversation_id, entries = seed(client, provider)
+        entry_url = f"{BASE}/{conversation_id}/entries/{entries[0]['id']}"
+        assert client.patch(entry_url, json={"status": "accepted", "expected_version": 1}).status_code == 200
+        paths = [f"{BASE}/{conversation_id}", f"{BASE}/{conversation_id}/messages", entry_url + "/reviews", entry_url + "/versions"]
+        before = [client.get(path).json() for path in paths]
+        engine = client.app.state.repository.database.engine
+
+        def fail_final_delete(connection: object, cursor: object, statement: str, parameters: object, context: object, executemany: bool) -> None:
+            if statement.startswith("DELETE FROM conversations"):
+                raise SQLAlchemyError("Private storage error.")
+
+        event.listen(engine, "before_cursor_execute", fail_final_delete)
+        try:
+            failed = client.delete(f"{BASE}/{conversation_id}")
+        finally:
+            event.remove(engine, "before_cursor_execute", fail_final_delete)
+
+        assert failed.status_code == 503 and failed.json()["error"]["code"] == "storage_failed"
+        assert "Private storage" not in failed.text
+        assert [client.get(path).json() for path in paths] == before
+        assert client.delete(f"{BASE}/{conversation_id}").status_code == 204
+
+
+def test_delete_validates_ids_origins_and_missing_chats(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        assert client.delete(f"{BASE}/not-a-uuid").status_code == 422
+        assert client.delete(f"{BASE}/{conversation_id}", headers={"Origin": "https://untrusted.example"}).status_code == 403
+        assert client.get(f"{BASE}/{conversation_id}").status_code == 200
+        assert client.delete(f"{BASE}/{conversation_id}").status_code == 204
+        missing = client.delete(f"{BASE}/{conversation_id}")
+        assert missing.status_code == 404 and missing.json()["error"]["code"] == "conversation_not_found"
+        provider.generate.assert_not_awaited()
