@@ -79,7 +79,6 @@ class GeminiProvider:
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_json_schema=adapter.json_schema(),
-            candidate_count=1,
             max_output_tokens=MAX_OUTPUT_TOKENS,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             automatic_continuation=False,

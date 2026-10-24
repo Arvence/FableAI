@@ -12,7 +12,7 @@ class Settings(BaseModel):
     app_name: str = "FableAI"
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
-    gemini_timeout_seconds: float = Field(default=30.0, gt=0, le=60, strict=True)
+    gemini_timeout_seconds: float = Field(default=60.0, gt=0, le=60, strict=True)
     database_path: Path = Path(__file__).resolve().parents[1] / "data" / "fableai.sqlite3"
 
 

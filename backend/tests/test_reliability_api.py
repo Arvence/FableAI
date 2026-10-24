@@ -116,7 +116,7 @@ def test_provider_failures_preserve_safe_details_and_replay_without_new_calls(sd
             assert request.headers["x-goog-api-key"] == FAKE_KEY
             body = json.loads(request.content)
             assert "tools" not in body and "systemInstruction" not in body
-            assert body["generationConfig"]["candidateCount"] == 1
+            assert "candidateCount" not in body["generationConfig"]
             assert body["generationConfig"]["maxOutputTokens"] == 8192
             assert call.kwargs["enterprise"] is False
             assert call.kwargs["http_options"].retry_options.attempts == 1

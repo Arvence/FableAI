@@ -57,7 +57,7 @@ def provider_factory(monkeypatch: pytest.MonkeyPatch) -> Callable:
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", "https://unused.invalid/")
 
-    def build(handler: Callable, timeout: float = 30.0) -> tuple[GeminiProvider, list[httpx.Request], Mock]:
+    def build(handler: Callable, timeout: float = 60.0) -> tuple[GeminiProvider, list[httpx.Request], Mock]:
         requests = []
 
         async def handle(request: httpx.Request) -> httpx.Response:
@@ -98,12 +98,12 @@ def test_validates_existing_response_contracts(provider_factory: Callable, kind:
     assert body["contents"] == [{"parts": [{"text": PROMPT}], "role": "user"}]
     assert body["generationConfig"]["responseMimeType"] == "application/json"
     assert body["generationConfig"]["responseJsonSchema"] == RESPONSE_ADAPTER.json_schema()
-    assert body["generationConfig"]["candidateCount"] == 1
+    assert "candidateCount" not in body["generationConfig"]
     assert body["generationConfig"]["maxOutputTokens"] == 8_192
     assert "tools" not in body
     assert "systemInstruction" not in body
     assert FAKE_KEY not in request.content.decode()
-    assert request.extensions["timeout"] == {"connect": 30.0, "read": 30.0, "write": 30.0, "pool": 30.0}
+    assert request.extensions["timeout"] == {"connect": 60.0, "read": 60.0, "write": 60.0, "pool": 60.0}
     assert factory.call_args.kwargs["enterprise"] is False
     assert factory.call_args.kwargs["http_options"].retry_options.attempts == 1
 
@@ -158,7 +158,7 @@ def test_configuration_has_no_default_credentials_or_model(monkeypatch: pytest.M
 
     assert settings.gemini_api_key is None
     assert settings.gemini_model is None
-    assert settings.gemini_timeout_seconds == 30.0
+    assert settings.gemini_timeout_seconds == 60.0
 
 
 @pytest.mark.parametrize("timeout", [0, -1, 61, float("inf"), float("nan"), True, "30"])
