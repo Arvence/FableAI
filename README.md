@@ -1,6 +1,6 @@
 # FableAI
 
-FableAI is a local chat application for creating explicitly fictional news and announcement drafts from authorized samples, headlines, and optional reference URLs. It returns validated JSON, remembers conversation context, and supports revisions to selected entries with stable IDs and version history.
+FableAI is a local chat application for creating explicitly fictional news and announcement drafts from meaningful prompts, optionally guided by authorized samples, headlines, and reference URLs. It returns validated JSON, remembers conversation context, and supports revisions to selected entries with stable IDs and version history.
 
 Generated content is for creative drafting, demos, and testing. Every draft carries a fictional title marker and a synthetic-content label. Accepting a draft records a local review decision; it does not publish anything or verify real events.
 
@@ -15,53 +15,31 @@ Application code and backend tests live in `backend/app/` and `backend/tests/`. 
 
 ## Install and start locally
 
-Install Python 3.12 and Node.js 22.12 or newer with npm. On Windows, check that `python --version` selects Python 3.12; on macOS/Linux use `python3.12`.
+Install Python 3.12 and Node.js 22.12 or newer with npm. On Windows, check that `python --version` selects Python 3.12; the launcher also supports `py -3.12`. On macOS/Linux, install `python3.12`.
 
-From the repository root, install the backend and create its environment file only if one does not already exist.
-
-Windows PowerShell:
-
-~~~powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-if (!(Test-Path .env)) { Copy-Item .env.example .env }
-~~~
-
-macOS/Linux:
+Run commands from the repository root. No root-level `npm install` is needed.
 
 ~~~sh
-cd backend
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-[ -f .env ] || cp .env.example .env
+npm run start:all
 ~~~
 
-The app can start, list saved conversations, and serve its health endpoint without Gemini credentials. To submit model-backed chat turns, first complete the account checks below and fill in `backend/.env` yourself.
+On first start, the launcher creates `backend/.venv`, installs missing backend/frontend dependencies, and creates `backend/.env` from the blank template if needed. In an interactive terminal, it asks for missing `GEMINI_API_KEY` and `GEMINI_MODEL` values. The key is hidden while typing; settings are saved only in the Git-ignored backend environment file. Existing values and unrelated settings are preserved.
 
-Start the backend from `backend/`:
+Use your own key and exact model ID after completing the account checks below. Setup does not create credentials, choose a model, verify billing, or make Gemini requests. Press Enter to skip a setting. Without credentials, the app can still open, load history, and serve its health endpoint. In a noninteractive terminal, edit `backend/.env` locally before using generation.
 
-~~~powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
-~~~
+| Command | Action |
+| --- | --- |
+| `npm run start:all` | Start both development servers. |
+| `npm run start:frontend` | Start only the frontend; does not ask for backend credentials. |
+| `npm run start:backend` | Start only the backend. |
+| `npm run start:all:setup` | Refresh both dependency installations, fill missing settings, then start both servers. |
+| `npm run setup` | Refresh dependencies and fill missing settings without starting servers. |
 
-On macOS/Linux:
+You can also append `-- --setup` to any start command, for example `npm run start:backend -- --setup`. Use setup after pulling dependency changes. Normal starts reuse installed dependencies and configured credentials. If PowerShell blocks `npm.ps1`, use `npm.cmd` in these commands.
 
-~~~sh
-.venv/bin/python -m uvicorn app.main:app --reload
-~~~
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite forwards `/api` requests to the backend at `127.0.0.1:8000`. Both servers bind to loopback. The relevant ports must be available; the launcher reports conflicts without stopping existing processes. Press `Ctrl+C` once to stop the launched servers. If either server exits, the launcher stops its peer.
 
-In a second terminal, starting at the repository root:
-
-~~~powershell
-cd frontend
-npm.cmd ci
-npm.cmd run dev
-~~~
-
-On macOS/Linux, use `npm ci` and `npm run dev` instead. Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite forwards `/api` requests to the backend at `127.0.0.1:8000`. Both servers bind to loopback; port 5173 must be available.
-
-[GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}` without a model call. API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), with the machine-readable contract at `/openapi.json`. Stop each server with `Ctrl+C`.
+[GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}` without a model call. API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), with the machine-readable contract at `/openapi.json`.
 
 For a local build preview, run `npm run build` followed by `npm run preview` from `frontend/`, with the backend running and the frontend development server stopped. Use `npm.cmd` in PowerShell. Preview uses the same loopback address, port, and API proxy.
 
@@ -83,21 +61,25 @@ Availability, pricing, and limits can change. FableAI does not inspect or enforc
 
 The backend reads `backend/.env` at startup, independently of the working directory. Process environment variables take precedence, including explicitly empty values. Values are read literally without interpolation. `.env.example` is a template only. Restart the backend after changing configuration. Keep keys out of frontend files and all `VITE_*` variables.
 
-Each provider invocation makes one request with a 30-second default timeout. Interpreting a turn uses a model request; generating or revising drafts can use a second request. There are no automatic retries, model switches, tool calls, or paid fallbacks. A quota error tells you to wait. Starting the app, loading history, and accepting/rejecting an entry do not call Gemini.
+Each provider invocation makes one request with a 60-second default timeout. Interpreting a turn uses a model request; generating or revising drafts can use a second request. There are no automatic retries, model switches, tool calls, or paid fallbacks. A quota error tells you to wait. Starting the app, loading history, and accepting/rejecting an entry do not call Gemini.
 
 Google's Unpaid Services terms permit service improvement use of prompts and responses and human review, with regional exceptions. Read the applicable [data-use terms](https://ai.google.dev/gemini-api/terms). Use only non-confidential, self-authored, public-domain, or appropriately licensed/authorized material. Do not submit personal information, credentials, or private documents.
 
 ## References and a sample conversation
 
-Create a chat, open **Add samples, headlines, or URLs**, and paste or attach authorized plain-text examples. Headlines and HTTPS links have separate inputs. Saved references are reused in later turns.
+Create a chat and write in **Your message**. Paste text and HTTPS links directly into that one box. Use the paperclip to attach authorized `.txt` samples; each file appears as a removable tile above the message. Attached samples are saved as references, while text in the message is treated as your instruction. Longer reference material belongs in an attached file.
+
+Start with a topic such as "rainy day", a phrase such as "a library on Mars", or a request such as "create rainy day 6". References are optional. Missing settings use one draft, neutral tone, English, announcement category, and 100-300 characters per body. Explicit settings and saved conversation preferences take precedence over defaults. Up to six drafts can be requested per turn. Larger counts, including shorthand such as "create rainy day 7", prompt a count clarification before drafting; the topic is retained for the answer. Clarification is reserved for unclear topics, ambiguous revisions, and unsupported or conflicting requirements.
+
+Requests and responses are grouped by turn, with divider lines between turns. User messages appear on the right and assistant responses on the left. Response JSON is always expanded; the copy icon on its right copies the exact JSON. The conversation scrolls within the chat workspace on desktop and mobile, and the message box stays below it. Saved references are reused in later turns.
 
 For example:
 
-1. Add a self-authored sample: "In the fictional town of Bramblewick, glass flowers brighten a quiet workshop. Guests choose colored petals for a pretend garden display."
+1. Attach a `.txt` file containing this self-authored sample: "In the fictional town of Bramblewick, glass flowers brighten a quiet workshop. Guests choose colored petals for a pretend garden display."
 2. Send: "Remember these preferences: English announcements about an imaginary paper-bird pavilion, neutral tone, one draft per request, and 100 to 240 characters per body."
-3. Send: "Generate one fictional draft." Answer any clarification about missing constraints.
-4. Inspect the draft and **View response JSON**. You can copy the exact response or mark the entry **Accept** or **Reject**.
-5. Select **Revise entry 1** and send: "Make entry 1 shorter." Its ID stays the same, its version increases, and its review status returns to `draft`. Unselected entries and their reviews remain unchanged.
+3. Send: "Generate one fictional draft." Clarify only genuinely ambiguous or unsupported requirements when prompted.
+4. Inspect the entries in the expanded **Response JSON**. Use the copy icon for the exact response. Entry acceptance and rejection are available through the HTTP API.
+5. Send: "Make entry 1 shorter." Its ID stays the same, its version increases, and its review status returns to `draft`. Unselected entries and their reviews remain unchanged.
 6. Reload or restart the backend and reopen the conversation to continue with its saved history.
 
 These are illustrative generation and revision responses, grouped in one array for comparison. Each HTTP submission returns one response object, and a revision response contains only the revised entries.
@@ -155,6 +137,7 @@ Chat routes use `/api/v1/conversations`. Conversation and entry IDs are UUIDs.
 | `POST` | `/api/v1/conversations` | Create a conversation. |
 | `GET` | `/api/v1/conversations` | List conversations. |
 | `GET` | `/api/v1/conversations/{id}` | Read current preferences, references, and entries. |
+| `DELETE` | `/api/v1/conversations/{id}` | Permanently delete a chat and its saved history; returns 204. Active requests return 409. |
 | `POST` | `/api/v1/conversations/{id}/messages` | Submit an instruction and optional references or revision targets. |
 | `GET` | `/api/v1/conversations/{id}/messages` | Read ordered message history and saved responses. |
 | `POST` | `/api/v1/conversations/{id}/references/import` | Import one explicitly authorized reference. |
@@ -172,15 +155,19 @@ Lists accept `limit` (default 20, maximum 100). Conversations and versions use `
 
 ## Storage, limits, and review
 
+Use the sidebar to select saved chats and the **New chat** and **Delete chat** actions to manage them. On mobile, chats appear in a horizontal list above the conversation. Deletion requires confirmation and removes the chat's saved messages, references, drafts, versions, and review history. An active request must finish before its chat can be deleted.
+
 SQLite is created automatically on first startup. Conversations, references, messages, entry versions, and review decisions survive restarts. Browser session storage retains the selected chat, unsent composer content, and uncertain submission IDs for that browser session. Local databases are unencrypted; protect the workspace and any backups. Back up the SQLite file with the backend stopped.
 
-Requests are limited to 512 KiB with a 10-second upload deadline. Instructions allow 4,000 characters. Each conversation allows 10 references total, including up to 5 URLs, with 30,000 reference characters in total. A batch allows 1–5 entries, at most 6,000 characters per body and 12,000 requested body characters overall. A conversation holds up to 20 active drafts and 24,000 active body characters; start another chat when that budget is full. Prompt context is bounded even though full history stays in SQLite.
+Requests are limited to 512 KiB with a 10-second upload deadline. Instructions allow 4,000 characters. Each conversation allows 10 references total, including up to 5 URLs, with 30,000 reference characters in total. A batch allows 1–6 entries, at most 6,000 characters per body and 12,000 requested body characters overall. A conversation holds up to 20 active drafts and 24,000 active body characters; start another chat when that budget is full. Prompt context is bounded even though full history stays in SQLite.
 
-Schema, count, length, category/language metadata, fictional labels, and basic lexical overlap are checked in code. Topic fit, actual body language, tone, factual attribution, semantic diversity, and paraphrased copying still require human review. Passing validation does not prove originality or model quality.
+Schema, count, length, category/language metadata, fictional labels, and basic lexical overlap are checked in code. Quoted invented names and ordinary apostrophes are allowed. Attributed speech quotations, source links/citations, and unsupported verification or endorsement labels are rejected with the affected field and a specific reason; rejected content is not returned and no automatic retry is made. Topic fit, actual body language, tone, factual attribution, semantic diversity, and paraphrased copying still require human review. Passing validation does not prove originality or model quality.
 
 This is a local, single-user application. Conversation separation is not authentication. Public hosting, multi-user authorization, automated publishing, semantic verification, and unlimited memory are outside its scope.
 
 ## Tests
+
+From the repository root, run `npm run test:scripts` for launcher lifecycle and port-conflict checks. Backend tests also cover first-run configuration using temporary files and fake credentials.
 
 From `backend/`, on Windows:
 
