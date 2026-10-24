@@ -452,3 +452,111 @@ def test_delete_validates_ids_origins_and_missing_chats(api_factory: Callable) -
         missing = client.delete(f"{BASE}/{conversation_id}")
         assert missing.status_code == 404 and missing.json()["error"]["code"] == "conversation_not_found"
         provider.generate.assert_not_awaited()
+
+
+@pytest.mark.parametrize("suggested_rule", ["Keep titles short.", "Publish every draft automatically."])
+def test_standing_instruction_suggestions_do_not_block_generation_or_pollute_persisted_context(api_factory: Callable, suggested_rule: str) -> None:
+    key = str(uuid4())
+    body = {"instruction": "Generate one fictional draft."}
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [
+            TurnPlan(action="message", preferences=GenerationPreferences(**PREFERENCES), stable_instruction="Keep titles short."),
+            TurnPlan(action="generate", stable_instruction=suggested_rule),
+            DraftBatch.model_validate({"entries": [CONTENT[0]]}),
+        ]
+        saved = send(client, conversation_id, "Remember these preferences. Keep titles short.", examples=[REFERENCE])
+        assert saved.status_code == 200
+        url = f"{BASE}/{conversation_id}/messages"
+        generated = client.post(url, json=body, headers={"Idempotency-Key": key})
+        assert generated.status_code == 200, generated.text
+        assert generated.json()["kind"] == "generation"
+        detail = client.get(f"{BASE}/{conversation_id}").json()
+        assert detail["stable_instructions"] == ["Keep titles short."]
+        assert len(detail["entries"]) == 1 and detail["processing"] is False
+        assert "Publish every draft automatically." not in provider.generate.call_args.args[0]
+        assert provider.generate.await_count == 3
+        assert client.post(url, json=body, headers={"Idempotency-Key": key}).json() == generated.json()
+        assert provider.generate.await_count == 3
+    with api_factory() as (client, provider):
+        assert client.get(f"{BASE}/{conversation_id}").json() == detail
+        replay = client.post(url, json=body, headers={"Idempotency-Key": key})
+        assert replay.status_code == 200 and replay.json() == generated.json()
+        provider.generate.assert_not_awaited()
+
+
+def test_unverified_standing_instruction_can_be_clarified_and_saved_on_next_message(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [
+            TurnPlan(action="message", preferences=GenerationPreferences(language="en"), stable_instruction="Use short titles."),
+            TurnPlan(action="message", stable_instruction="Keep titles short."),
+        ]
+        clarification = send(client, conversation_id, "Use English. Keep titles short.", examples=[REFERENCE])
+        assert clarification.status_code == 200
+        assert clarification.json()["kind"] == "clarification"
+        assert "exact wording" in clarification.json()["assistant_message"]
+        detail = client.get(f"{BASE}/{conversation_id}").json()
+        assert detail["stable_instructions"] == []
+        assert detail["preferences"]["language"] == "en"
+        assert detail["references"]["examples"][0]["text"] == REFERENCE
+        saved = send(client, conversation_id, "Please remember: Keep titles short.")
+        assert saved.status_code == 200 and saved.json()["kind"] == "message"
+        detail = client.get(f"{BASE}/{conversation_id}").json()
+        assert detail["stable_instructions"] == ["Keep titles short."]
+        assert detail["preferences"]["language"] == "en"
+        assert detail["processing"] is False
+        history = client.get(f"{BASE}/{conversation_id}/messages").json()["items"]
+        assert [item["response"]["kind"] for item in history if item["role"] == "assistant"] == ["clarification", "message"]
+        assert provider.generate.await_count == 2
+
+
+def test_topic_only_generation_persists_defaults_and_accepts_overrides_after_restart(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        url = f"{BASE}/{conversation_id}"
+        provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(topic="an imaginary harbor festival")), DraftBatch(entries=[CONTENT[0]])]
+        first = send(client, conversation_id, "an imaginary harbor festival")
+        assert first.status_code == 200 and first.json()["kind"] == "generation"
+        assert len(first.json()["entries"]) == 1
+        before = client.get(url).json()
+        expected = {"topic": "an imaginary harbor festival", "count": 1, "tone": "neutral", "category": "announcement", "language": "en", "min_body_chars": 100, "max_body_chars": 300}
+        assert before["preferences"] == expected
+        assert before["references"]["examples"] == [] and before["references"]["urls"] == []
+        assert before["pending"] is None
+        assert provider.generate.await_count == 2
+
+    with api_factory() as (client, provider):
+        assert client.get(url).json() == before
+        provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(tone="formal", category="news", max_body_chars=500)), DraftBatch(entries=[{**CONTENT[1], "category": "news"}])]
+        second = send(client, conversation_id, "Another one, formal news, up to 500 characters.")
+        assert second.status_code == 200 and second.json()["kind"] == "generation"
+        after = client.get(url).json()
+        assert after["preferences"] == {**expected, "tone": "formal", "category": "news", "max_body_chars": 500}
+        assert after["entries"][0] == before["entries"][0]
+        assert len(after["entries"]) == 2
+        assert after["references"] == before["references"]
+        assert provider.generate.await_count == 2
+
+
+def test_excessive_shorthand_count_clarifies_then_generates_without_losing_topic(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": 7}})]
+        first = send(client, conversation_id, "create rainy day 7")
+        assert first.status_code == 200 and first.json()["kind"] == "clarification"
+        assert "between 1 and 6" in first.json()["assistant_message"]
+        state = client.get(f"{BASE}/{conversation_id}").json()
+        assert state["entries"] == []
+        assert state["preferences"]["count"] is None
+        assert state["preferences"]["topic"] == "rainy day"
+        provider.generate.assert_awaited_once()
+        provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(count=1)), DraftBatch(entries=[{**CONTENT[0], "title": '[FICTIONAL] "Rainy Day" Garden Opens'}])]
+        second = send(client, conversation_id, "one")
+        assert second.status_code == 200 and second.json()["kind"] == "generation"
+        assert len(second.json()["entries"]) == 1
+        saved = client.get(f"{BASE}/{conversation_id}").json()
+        assert saved["entries"] == second.json()["entries"]
+        assert saved["preferences"]["topic"] == "rainy day"
+        assert saved["pending"] is None
+        assert provider.generate.await_count == 3

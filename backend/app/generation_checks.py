@@ -12,12 +12,15 @@ UNSUPPORTED_TOPIC = re.compile(
     r"|\b(?:real[- ]person quotations?|official endorsement|verified reporting|impersonate)\b",
     re.IGNORECASE,
 )
-UNSUPPORTED_CLAIM = re.compile(
-    r"https?://|www\.|\bdoi\s*:|\[\d+\]"
-    r"|\b(?:according to|official(?:ly)?|endorsed|verified|confirmed|breaking news|sources? (?:say|said)|real[- ]world event)\b"
-    r"|\b(?:said|stated|told|announced|declared)\b.{0,30}[\"\u201c\u201d\u00ab\u00bb]"
-    r"|[\"\u201c\u201d\u00ab\u00bb]|(?:^|\s)[\u2018']\S.{2,}?[\u2019'](?:\s|[.!?,]|$)",
-    re.IGNORECASE,
+CITATION = re.compile(r"https?://|www\.|\bdoi\s*:|\[\d+\]", re.IGNORECASE)
+UNSUPPORTED_CLAIM = re.compile(r"\b(?:according to|official(?:ly)?|endorsed|verified|confirmed|breaking news|sources? (?:say|said)|real[- ]world event)\b", re.IGNORECASE)
+QUOTED_TEXT = r"""(?:"[^"\n]+"|\u201c[^\u201d\n]+\u201d|\u00ab[^\u00bb\n]+\u00bb|\u2018[^\u2019\n]+\u2019|(?<!\w)'[^'\n]+'(?!\w))"""
+SPEECH_VERBS = r"\b(?:said|says|stated|states|told|announced|declared|replied|asked|wrote|commented|added|explained|remarked|noted)\b"
+ATTRIBUTED_QUOTATION = re.compile(rf"{SPEECH_VERBS}[^.!?\n]{{0,30}}{QUOTED_TEXT}|{QUOTED_TEXT}[,;:\s\u2014-]+(?:\w+\s+){{0,4}}{SPEECH_VERBS}", re.IGNORECASE)
+CONTENT_CHECKS = (
+    (CITATION, "Generated drafts must not contain citations or source links."),
+    (UNSUPPORTED_CLAIM, "Generated drafts must not contain unsupported verification or endorsement claims."),
+    (ATTRIBUTED_QUOTATION, "Generated drafts must not contain attributed speech quotations."),
 )
 CASUAL_LANGUAGE = re.compile(r"\b(?:lol|omg|gonna|wanna|awesome|super cool)\b", re.IGNORECASE)
 
@@ -90,8 +93,12 @@ def validate_generated_batch(batch: DraftBatch, request: GenerationRequest, sour
         if entry.category != request.category or entry.language.casefold() != request.language.casefold():
             raise GenerationRejected("generation_failed", "Generated category or language metadata does not match the request.", field)
         text = " ".join((entry.title, entry.body, *entry.tags))
-        if UNSUPPORTED_CLAIM.search(unicodedata.normalize("NFKC", text)):
-            raise GenerationRejected("generation_failed", "Generated drafts must not contain quotations, citations, or unsupported verification or endorsement claims.", field)
+        content_fields = [("title", entry.title), ("body", entry.body), *((f"tags.{tag_index}", tag) for tag_index, tag in enumerate(entry.tags))]
+        for name, value in content_fields:
+            normalized = unicodedata.normalize("NFKC", value)
+            for pattern, message in CONTENT_CHECKS:
+                if pattern.search(normalized):
+                    raise GenerationRejected("generation_failed", message, field + "." + name)
         if (request.tone in {"neutral", "formal"} and "!" in text) or (request.tone == "formal" and CASUAL_LANGUAGE.search(text)):
             raise GenerationRejected("generation_failed", "Generated wording conflicts with the requested tone checks.", field)
         for candidate in (entry.title, entry.body):

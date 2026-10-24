@@ -121,3 +121,38 @@ def test_malformed_revision_json_leaves_state_unchanged(sdk_conversation: Callab
     assert result.response.kind == "error" and result.response.error.code == "generation_failed"
     assert result.snapshot == state and state.active_entries[0].version == 1
     assert len(requests) == 2
+
+
+def test_topic_only_flow_through_real_sdk_uses_defaults_and_no_references(sdk_conversation: Callable) -> None:
+    service, requests, factory = sdk_conversation([
+        {"action": "generate", "preferences": {"topic": "an imaginary harbor exhibition"}},
+        {"entries": [CONTENT]},
+    ])
+    result = asyncio.run(service.handle_turn(ChatTurnRequest(instruction="an imaginary harbor exhibition")))
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+    assert len(requests) == 2
+    interpretation = requests[0]["contents"][0]["parts"][0]["text"]
+    plan_data = json.loads(interpretation.split("DATA_JSON:\n", 1)[1])
+    assert plan_data["max_entries_per_turn"] == 6
+    assert plan_data["generation_defaults"] == {"count": 1, "tone": "neutral", "category": "announcement", "language": "en", "min_body_chars": 100, "max_body_chars": 300}
+    drafting = requests[1]["contents"][0]["parts"][0]["text"]
+    draft_data, _ = json.JSONDecoder().raw_decode(drafting.split("DATA_JSON:\n", 1)[1])
+    assert draft_data["constraints"] == {"mode": "synthetic", "topic": "an imaginary harbor exhibition", **plan_data["generation_defaults"]}
+    assert draft_data["reference_patterns"]["samples"] == []
+    assert requests[1]["generationConfig"]["responseJsonSchema"]["properties"]["entries"]["maxItems"] == 6
+    assert all(call.kwargs["http_options"].retry_options.attempts == 1 for call in factory.call_args_list)
+
+
+def test_sdk_can_extract_out_of_range_count_for_backend_clarification(sdk_conversation: Callable) -> None:
+    service, requests, factory = sdk_conversation([{"action": "generate", "preferences": {"topic": "rainy day", "count": 7}}])
+    result = asyncio.run(service.handle_turn(ChatTurnRequest(instruction="create rainy day 7")))
+    assert result.response.kind == "clarification"
+    assert "between 1 and 6" in result.response.assistant_message
+    assert result.snapshot.preferences.count is None
+    assert result.snapshot.preferences.topic == "rainy day"
+    assert len(requests) == 1
+    assert factory.call_count == 1
+    schema = requests[0]["generationConfig"]["responseJsonSchema"]
+    count_schema = schema["$defs"]["InterpretedPreferences"]["properties"]["count"]
+    assert "maximum" not in json.dumps(count_schema)

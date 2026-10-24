@@ -21,6 +21,7 @@ DRAFT_TEXTS = (
     ("Tiny Weather Studio Collects Wooden Clouds", "A make-believe observatory has assembled wooden clouds above a miniature town. Volunteers adjust painted wheels to create harmless pretend weather patterns for a seasonal craft exhibition."),
     ("Crystal Orchard Introduces Color-Changing Benches", "In the fabricated valley of Pellara, translucent branches shelter benches that change color as shadows move. A small design team uses the orchard to explore playful seating layouts for imaginary travelers."),
     ("Sandship Workshop Experiments With Ribbon Sails", "An invented desert settlement has opened a workshop for model sandships. Builders combine ribbon sails and rounded wheels to discover unusual shapes suitable for a purely fictional parade."),
+    ("Rain Garden Opens an Umbrella Exchange", "Within a fictional hillside village, ceramic raindrops ring softly on copper rooftops. An umbrella exchange offers patterned canopies for a procession through the misty sculpture garden."),
 )
 
 
@@ -135,7 +136,7 @@ def test_reference_instructions_do_not_enter_model_prompt_as_instructions() -> N
 
 
 @pytest.mark.parametrize("changes", [
-    {"count": 0}, {"count": 6}, {"count": True}, {"count": "2"}, {"tone": "official"}, {"category": "verified_reporting"},
+    {"count": 0}, {"count": 7}, {"count": True}, {"count": "2"}, {"tone": "official"}, {"category": "verified_reporting"},
     {"language": "English"}, {"min_body_chars": 0}, {"max_body_chars": 6_001}, {"min_body_chars": 301, "max_body_chars": 300},
     {"count": 5, "max_body_chars": 3_000}, {"mode": "summarization"}, {"mode": "verification"}, {"topic": " "}, {"unknown": True},
 ])
@@ -162,15 +163,19 @@ def test_unsupported_generation_requests_fail_before_calling_provider(topic: str
 
 
 @pytest.mark.parametrize("references", [ReferenceCollection(), ReferenceCollection(urls=[URLReference(id=uuid4(), url="https://example.com/unread")])])
-def test_missing_usable_references_fail_without_provider_call(references: ReferenceCollection) -> None:
+def test_generates_from_topic_without_usable_references(references: ReferenceCollection) -> None:
     provider = fake_provider()
     result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), references))
-    assert result.kind == "error"
-    assert result.error.code == "invalid_request"
-    provider.generate.assert_not_awaited()
+    assert result.kind == "generation"
+    assert len(result.entries) == 1
+    provider.generate.assert_awaited_once()
+    data = prompt_data(provider.generate.call_args.args[0])
+    assert data["reference_patterns"]["samples"] == []
+    assert all(link["source_text_status"] == "not_provided_for_model_use" for link in data["reference_patterns"]["links"])
+    assert "https://example.com/unread" not in provider.generate.call_args.args[0]
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6])
 def test_generates_exact_count_with_backend_owned_identity_and_draft_contract(count: int) -> None:
     provider = fake_provider(draft_payload(count))
     request = generation_request(count=count)
@@ -355,3 +360,59 @@ def test_prompt_budget_failure_prevents_provider_call(monkeypatch: pytest.Monkey
     result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), generation_references()))
     assert result.kind == "error" and "size limit" in result.error.message
     provider.generate.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("opening", "closing"), [('"', '"'), ("'", "'"), ("\u201c", "\u201d"), ("\u2018", "\u2019"), ("\u00ab", "\u00bb")])
+def test_quoted_invented_names_are_not_treated_as_attributed_speech(opening: str, closing: str) -> None:
+    name = opening + "Rainy Day" + closing
+    body = f"A fictional village opens its {name} garden beneath a painted sky. Visitors arrange copper petals along a winding path of ceramic puddles."
+    provider = fake_provider(draft_payload(title=f"[FICTIONAL] {name} Garden Opens", body=body))
+    result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), ReferenceCollection()))
+    assert result.kind == "generation"
+    assert result.entries[0].body == body
+    assert result.entries[0].title == f"[FICTIONAL] {name} Garden Opens"
+    provider.generate.assert_awaited_once()
+
+
+@pytest.mark.parametrize("body", [
+    "A fictional village's gardeners arrange a spiral of copper leaves. Visitors don't need umbrellas beneath the garden's imaginary glass canopy.",
+    "A fictional village\u2019s gardeners arrange a spiral of copper leaves. Visitors don\u2019t need umbrellas beneath the garden\u2019s imaginary glass canopy.",
+])
+def test_apostrophes_and_contractions_are_not_quotations(body: str) -> None:
+    provider = fake_provider(draft_payload(body=body))
+    result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), ReferenceCollection()))
+    assert result.kind == "generation"
+    assert result.entries[0].body == body
+
+
+@pytest.mark.parametrize(("opening", "closing"), [('"', '"'), ("'", "'"), ("\u201c", "\u201d"), ("\u2018", "\u2019"), ("\u00ab", "\u00bb")])
+@pytest.mark.parametrize("speaker_first", [True, False])
+def test_attributed_quotations_still_fail_with_specific_field_without_retry(opening: str, closing: str, speaker_first: bool) -> None:
+    quotation = opening + "The rain belongs to everyone" + closing
+    speech = f"The gardener said {quotation}." if speaker_first else f"{quotation}, the gardener said."
+    body = "In a fictional village, ceramic raindrops cover the garden paths. " + speech + " Copper leaves form patterns overhead."
+    provider = fake_provider(draft_payload(body=body))
+    result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), ReferenceCollection()))
+    assert result.kind == "error"
+    assert result.error.message == "Generated drafts must not contain attributed speech quotations."
+    assert result.error.details[0].field == "entries.0.body"
+    assert body not in result.model_dump_json()
+    provider.generate.assert_awaited_once()
+
+
+@pytest.mark.parametrize(("changes", "field", "message"), [
+    ({"title": "[FICTIONAL] Official Rainy Day Notice"}, "entries.0.title", "unsupported verification or endorsement claims"),
+    ({"body": "A fictional village opens a rainy garden, verified by real authorities. Visitors gather under a canopy of copper leaves."}, "entries.0.body", "unsupported verification or endorsement claims"),
+    ({"tags": ["fiction", "official"]}, "entries.0.tags.1", "unsupported verification or endorsement claims"),
+    ({"body": "A fictional village opens its rainy garden. A source reference [1] appears beside the winding path of ceramic puddles."}, "entries.0.body", "citations or source links"),
+    ({"body": "An imaginary rainy garden opens beneath a painted sky. Visit https://example.com for information about the ceramic paths."}, "entries.0.body", "citations or source links"),
+])
+def test_content_rejection_reports_specific_rule_and_field_without_exposing_output(changes: dict, field: str, message: str) -> None:
+    provider = fake_provider(draft_payload(**changes))
+    result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), ReferenceCollection()))
+    assert result.kind == "error" and result.error.code == "generation_failed"
+    assert message in result.error.message
+    assert result.error.details[0].field == field
+    assert result.error.details[0].message == result.error.message
+    assert "entries" not in result.model_dump()
+    provider.generate.assert_awaited_once()

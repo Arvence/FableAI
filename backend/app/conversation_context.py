@@ -1,7 +1,7 @@
 import json
 
-from app.contracts import ChatTurnRequest
-from app.conversation_contracts import ConversationSnapshot
+from app.contracts import MAX_ENTRIES, ChatTurnRequest
+from app.conversation_contracts import DEFAULT_GENERATION_PREFERENCES, ConversationSnapshot
 from app.generation_checks import GenerationRejected
 from app.generation_prompts import summarize_references
 
@@ -15,7 +15,12 @@ MAX_TURN_PROMPT_CHARS = 32_000
 INTERPRETATION_INSTRUCTIONS = """Interpret one user turn for a fictional drafting assistant. Return only the TurnPlan JSON schema.
 Use message to acknowledge reference or preference input, clarification for uncertain intent, generate for new drafts, and revise for changes to existing drafts.
 Follow-ups may reuse saved preferences and references. A pending action records a question awaiting the user's answer; continue it when the answer resolves it.
-Extract only preferences explicitly stated or changed in the CURRENT user message. Leave unspecified values null; the backend merges saved preferences. Never invent missing count, topic, tone, category, language, or body-character limits.
+A meaningful topic, phrase, or natural-language request is enough to generate fictional drafts; no special command words, reference samples, or settings form are required. Infer a concise topic from the current message in any language. Do not limit topics to a fixed list.
+For example, "rainy day" means generate with topic "rainy day"; "create rainy day 6" means generate with topic "rainy day" and count 6; "a library on Mars" is also a generation request.
+Interpret numbers by meaning: "Formula 1", "Apollo 11", and years within a topic are subjects, not draft counts. Extract a count when it describes how many drafts the user wants.
+Extract other preferences only when stated or changed in the CURRENT message. Leave unspecified values null: the backend merges saved preferences and then applies the supplied generation_defaults for missing settings. Do not ask for omitted tone, count, category, language, body-character limits, or references. Prior checklist messages do not make those fields mandatory.
+Use clarification only when no meaningful subject can be inferred or reused, the request is genuinely ambiguous, or an explicit requirement cannot be honored. Ask one concise question about the actual blocker. Greetings and preference-only or reference-only messages can be acknowledged without generating drafts.
+Always extract the user's requested draft count, including counts outside max_entries_per_turn; the backend validates the limit. For example, "create rainy day 7" has topic "rainy day" and count 7, even when the limit is 6. Never omit, clamp, or replace an explicit count with a saved count. Requests exceeding the limit require a concise clarification.
 Supported tones are neutral, formal, informative, playful; categories are news and announcement; language uses a language code. Length limits are characters, not words.
 For relative shortening or expansion set length_change to shorter or longer, without inventing numeric bounds.
 For a standing writing instruction, stable_instruction must be an exact verbatim span from the CURRENT message. Otherwise leave it null.
@@ -73,6 +78,8 @@ def build_turn_prompt(request: ChatTurnRequest, snapshot: ConversationSnapshot) 
     data = {
         "conversation": json.loads(encode_drafting_context(snapshot, request.instruction)),
         "reference_patterns": patterns,
+        "generation_defaults": DEFAULT_GENERATION_PREFERENCES.model_dump(exclude_none=True),
+        "max_entries_per_turn": MAX_ENTRIES,
         "explicit_generation_count": request.generation_count,
         "has_explicit_revision_targets": bool(request.revision_targets),
     }

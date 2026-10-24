@@ -5,28 +5,40 @@ from pydantic import ValidationError
 
 from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_CONTEXT_CHARS, MAX_CONTEXT_MESSAGES, MAX_ENTRIES, MAX_ENTRY_BODY_CHARS, MAX_GENERATION_BODY_CHARS, ChatMessage, ChatTurnRequest, ClarificationResponse, ErrorInfo, ErrorResponse, GeneratedEntry, GenerationRequest, MessageResponse, RevisionResponse, RevisionTarget
 from app.conversation_context import build_turn_prompt, encode_drafting_context
-from app.conversation_contracts import ConversationResponse, ConversationSnapshot, ConversationTurnResult, GenerationPreferences, PendingTurn, TurnPlan
+from app.conversation_contracts import DEFAULT_GENERATION_PREFERENCES, ConversationResponse, ConversationSnapshot, ConversationTurnResult, GenerationPreferences, PendingTurn, TurnPlan
 from app.gemini_provider import GeminiProvider, GeminiProviderError
-from app.generation_checks import UNSUPPORTED_TOPIC, GenerationRejected
-from app.generation_prompts import summarize_references
+from app.generation_checks import UNSUPPORTED_TOPIC, GenerationRejected, normalized_words
 from app.reference_management import ReferenceInputs, ReferenceLink, prepare_references
 from app.revision_generation import RevisionGenerationService
 from app.synthetic_generation import SyntheticGenerationService
 
 
-NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
-ORDINAL_WORDS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
+NUMBER_WORDS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+ORDINAL_WORDS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6}
 UUID_PATTERN = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 
 
-def _explicit_count(request: ChatTurnRequest) -> int | None:
+def _explicit_count(request: ChatTurnRequest, topic: str | None) -> int | None:
     if request.generation_count is not None:
         return request.generation_count
-    match = re.search(r"\b(?:generate|create|write)\s+(\d+|one|two|three|four|five)\b", request.instruction, re.IGNORECASE)
+    number_pattern = r"-?\d+|" + "|".join(NUMBER_WORDS)
+    match = re.search(rf"\b(?:generate|create|write)\s+({number_pattern})\b", request.instruction, re.IGNORECASE)
     if match is None:
-        return None
+        match = re.search(rf"\s+({number_pattern})[.!?]?\s*$", request.instruction, re.IGNORECASE)
+        if match is None or topic is None:
+            return None
+        subject = normalized_words(request.instruction[:match.start()])
+        if subject and subject[0] == "please":
+            subject = subject[1:]
+        if subject and subject[0] in {"generate", "create", "write"}:
+            subject = subject[1:]
+        if subject != normalized_words(topic):
+            return None
     value = match[1].lower()
-    return NUMBER_WORDS[value] if value in NUMBER_WORDS else int(value)
+    count = NUMBER_WORDS[value] if value in NUMBER_WORDS else int(value)
+    if topic and re.search(rf"\b(?:{re.escape(value)}|{count})\b", topic, re.IGNORECASE):
+        return None
+    return count
 
 
 def _resolve_targets(request: ChatTurnRequest, snapshot: ConversationSnapshot) -> list[RevisionTarget] | None:
@@ -62,7 +74,7 @@ def _resolve_targets(request: ChatTurnRequest, snapshot: ConversationSnapshot) -
     else:
         return None
     if len(targets) > MAX_ENTRIES:
-        raise GenerationRejected("invalid_request", "Revise at most five entries in one turn.")
+        raise GenerationRejected("invalid_request", f"Revise at most {MAX_ENTRIES} entries in one turn.")
     for target in targets:
         if target.entry_id not in by_id:
             raise GenerationRejected("entry_not_found", "A selected entry does not belong to this conversation.")
@@ -150,21 +162,27 @@ class ConversationService:
             raise GenerationRejected("generation_failed", "The provider did not return a validated turn interpretation.")
         plan = TurnPlan.model_validate(result.model_dump())
         action = "clarification" if plan.action == "clarification" else "revise" if request.revision_targets else "generate" if request.generation_count is not None else plan.action
-        explicit_count = _explicit_count(request) if action == "generate" or request.generation_count is not None else None
-        if explicit_count is not None and not 1 <= explicit_count <= MAX_ENTRIES:
-            return _clarify(snapshot, request, "How many drafts should I generate? Choose between one and five per turn.")
+        explicit_count = _explicit_count(request, plan.preferences.topic) if action == "generate" or request.generation_count is not None else None
         updates = plan.preferences.model_dump(exclude_none=True)
         if explicit_count is not None:
             updates["count"] = explicit_count
+        requested_count = updates.get("count")
+        invalid_count = requested_count is not None and not 1 <= requested_count <= MAX_ENTRIES
+        if invalid_count:
+            updates.pop("count")
         try:
             snapshot.preferences = GenerationPreferences.model_validate({**snapshot.preferences.model_dump(), **updates})
         except ValidationError:
             return _clarify(snapshot, request, "Please provide a consistent minimum and maximum body length in characters.")
-        if plan.stable_instruction is not None:
-            if plan.stable_instruction not in request.instruction:
-                raise GenerationRejected("generation_failed", "A standing instruction was not grounded in the current user message.")
-            if plan.stable_instruction not in snapshot.stable_instructions:
+        if invalid_count:
+            if action == "generate":
+                snapshot.pending = PendingTurn(action="generate", instruction=request.instruction, preference_changes=GenerationPreferences.model_validate(updates))
+            return _clarify(snapshot, request, f"How many drafts should I generate? Choose between 1 and {MAX_ENTRIES} per turn.")
+        if plan.stable_instruction is not None and plan.stable_instruction not in snapshot.stable_instructions:
+            if plan.stable_instruction in request.instruction:
                 snapshot.stable_instructions.append(plan.stable_instruction)
+            elif action == "message":
+                return _clarify(snapshot, request, "I couldn't save a new standing writing instruction. Please send the exact wording you want me to remember.")
         if action == "clarification":
             return _clarify(snapshot, request, plan.question or "Should I save these preferences, generate new drafts, or revise an existing entry?")
         if action == "message":
@@ -172,6 +190,11 @@ class ConversationService:
             if snapshot.references.urls:
                 message += " Links without permitted imported text remain link-only references."
             return _finish(snapshot, request, MessageResponse(kind="message", conversation_id=snapshot.conversation_id, message_id=uuid4(), assistant_message=message, entries=[]))
+        values = snapshot.preferences.model_dump(exclude_none=True)
+        defaults = DEFAULT_GENERATION_PREFERENCES.model_dump(exclude_none=True)
+        defaults["min_body_chars"] = min(defaults["min_body_chars"], values.get("max_body_chars", defaults["max_body_chars"]))
+        defaults["max_body_chars"] = max(defaults["max_body_chars"], values.get("min_body_chars", defaults["min_body_chars"]))
+        snapshot.preferences = GenerationPreferences.model_validate({**defaults, **values})
         previous_pending = snapshot.pending if snapshot.pending and snapshot.pending.action == action else None
         length_change = plan.length_change
         if re.search(r"\b(?:shorter|shorten)\b", request.instruction, re.IGNORECASE):
@@ -187,15 +210,8 @@ class ConversationService:
         if action == "revise" and not targets:
             question = f"Which entry should I revise? Specify an entry number from 1 to {len(snapshot.active_entries)} or select its ID." if snapshot.active_entries else "There are no active drafts. Would you like to generate some first?"
             return _clarify(snapshot, request, question)
-        required = ["topic", "tone", "min_body_chars", "max_body_chars"]
-        required += ["count", "category", "language"] if action == "generate" else []
-        missing = [field for field in required if getattr(snapshot.preferences, field) is None]
-        if missing:
-            labels = {"min_body_chars": "minimum body length in characters", "max_body_chars": "maximum body length in characters"}
-            return _clarify(snapshot, request, "Please specify " + ", ".join(labels.get(field, field) for field in missing) + ".")
-        _, sources = summarize_references(snapshot.references)
-        if not sources:
-            return _clarify(snapshot, request, "Please provide an authorized non-confidential sample or headline. Saved URLs alone are not usable source text.")
+        if snapshot.preferences.topic is None:
+            return _clarify(snapshot, request, "What would you like the fictional drafts to be about?")
         context = encode_drafting_context(snapshot, request.instruction)
         if action == "generate":
             return await self._generate(request, snapshot, context)

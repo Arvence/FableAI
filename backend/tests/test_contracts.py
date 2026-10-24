@@ -349,7 +349,7 @@ def test_illustrative_error_json() -> None:
         "error": {
             "code": "invalid_request",
             "message": "The chat turn contains an invalid value.",
-            "details": [{"field": "generation_count", "message": "Choose a count between 1 and 5."}]
+            "details": [{"field": "generation_count", "message": "Choose a count between 1 and 6."}]
         }
     }''')
     assert response.error.code == "invalid_request"

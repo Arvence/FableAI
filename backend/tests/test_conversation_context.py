@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_CONTEXT_CHARS, MAX_CONTEXT_MESSAGES, ChatMessage, ChatTurnRequest, GeneratedEntry, ReferenceCollection, ReferenceText, SourcePermission, URLReference
+from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_CONTEXT_CHARS, MAX_CONTEXT_MESSAGES, ChatMessage, ChatTurnRequest, DraftBatch, GeneratedEntry, ReferenceCollection, ReferenceText, SourcePermission, URLReference
 from app.conversation_context import MAX_CONVERSATION_CONTEXT_CHARS, MAX_ENTRY_PREVIEW_CHARS, MAX_RECENT_MESSAGE_CHARS, MAX_RECENT_MESSAGES, MAX_TURN_PROMPT_CHARS, build_turn_prompt, encode_drafting_context
 from app.conversation_contracts import ConversationSnapshot, GenerationPreferences, PendingTurn, TurnPlan
 from app.conversation_service import ConversationService
@@ -113,14 +113,20 @@ def test_only_permitted_imports_contribute_style_patterns(permission: bool) -> N
     assert str(reference.url) not in prompt
 
 
-def test_unusable_references_prompt_for_source_text_without_drafting() -> None:
+def test_link_only_references_allow_drafting_without_claiming_source_access() -> None:
     state = ConversationSnapshot(conversation_id=uuid4(), preferences=preferences(), references=ReferenceCollection(urls=[URLReference(id=uuid4(), url="https://example.com/source")]))
+    entry = active_entry().model_dump(exclude={"id", "version"})
+    entry["body"] = "Inside an imaginary gallery, tiny copper sculptures arrange themselves into a winding path. Painted doors reveal new patterns as visitors turn wooden handles."
     mocked = provider()
-    mocked.generate.return_value = TurnPlan(action="generate")
+    mocked.generate.side_effect = [TurnPlan(action="generate"), DraftBatch(entries=[entry])]
     result = asyncio.run(ConversationService(mocked).handle_turn(ChatTurnRequest(conversation_id=state.conversation_id, instruction="Generate one more."), state))
-    assert result.response.kind == "clarification"
-    assert "URLs alone" in result.response.assistant_message
-    mocked.generate.assert_awaited_once()
+    assert result.response.kind == "generation"
+    assert result.snapshot.references == state.references
+    assert mocked.generate.await_count == 2
+    data, _ = json.JSONDecoder().raw_decode(mocked.generate.call_args.args[0].split("DATA_JSON:\n", 1)[1])
+    assert data["reference_patterns"]["samples"] == []
+    assert data["reference_patterns"]["links"][0]["source_text_status"] == "not_provided_for_model_use"
+    assert "https://example.com/source" not in mocked.generate.call_args.args[0]
 
 
 @pytest.mark.parametrize("limit", ["count", "bodies", "batch"])

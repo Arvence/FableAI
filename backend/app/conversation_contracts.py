@@ -9,9 +9,9 @@ MAX_STABLE_INSTRUCTIONS = 8
 LengthChange = Literal["keep", "shorter", "longer"]
 
 
-class GenerationPreferences(ContractModel):
+class InterpretedPreferences(ContractModel):
     topic: Headline | None = None
-    count: int | None = Field(default=None, ge=1, le=MAX_ENTRIES)
+    count: int | None = None
     tone: Literal["neutral", "formal", "informative", "playful"] | None = None
     category: Literal["news", "announcement"] | None = None
     language: LanguageCode | None = None
@@ -25,9 +25,16 @@ class GenerationPreferences(ContractModel):
         return self
 
 
+class GenerationPreferences(InterpretedPreferences):
+    count: int | None = Field(default=None, ge=1, le=MAX_ENTRIES)
+
+
+DEFAULT_GENERATION_PREFERENCES = GenerationPreferences(count=1, tone="neutral", category="announcement", language="en", min_body_chars=100, max_body_chars=300)
+
+
 class TurnPlan(ContractModel):
     action: Literal["message", "clarification", "generate", "revise"]
-    preferences: GenerationPreferences = Field(default_factory=GenerationPreferences)
+    preferences: InterpretedPreferences = Field(default_factory=InterpretedPreferences)
     stable_instruction: Instruction | None = None
     question: str | None = Field(default=None, min_length=1, max_length=500)
     length_change: LengthChange = "keep"

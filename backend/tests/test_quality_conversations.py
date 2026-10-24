@@ -49,7 +49,7 @@ def conversation_entry(case_id: str) -> dict:
 def test_fixture_conversation_clarifies_retains_context_generates_more_and_revises_one_after_restart(tmp_path: Path) -> None:
     scenario = CONVERSATION
     preferences = scenario["preferences"]
-    provider = mocked_provider(TurnPlan(action="generate", preferences=GenerationPreferences(topic=preferences["topic"], count=2), stable_instruction=scenario["stable_instruction"]))
+    provider = mocked_provider(TurnPlan(action="generate", preferences=GenerationPreferences(count=2), stable_instruction=scenario["stable_instruction"]))
     settings = Settings(database_path=tmp_path / "quality-conversation.sqlite3")
     with open_client(settings, provider) as client:
         conversation_id = client.post(BASE).json()["conversation_id"]
@@ -57,12 +57,12 @@ def test_fixture_conversation_clarifies_retains_context_generates_more_and_revis
         references = [BY_ID[identifier]["reference"] for identifier in scenario["reference_ids"]]
         clarification = send(client, conversation_id, scenario["opening_instruction"], examples=references)
         assert clarification["kind"] == "clarification" and clarification["entries"] == []
-        assert "tone" in clarification["assistant_message"] and "characters" in clarification["assistant_message"]
+        assert clarification["assistant_message"] == "What would you like the fictional drafts to be about?"
         provider.generate.assert_awaited_once()
         assert client.get(url).json()["pending"]["action"] == "generate"
 
         provider.generate.side_effect = [
-            TurnPlan(action="generate", preferences=GenerationPreferences(**{key: value for key, value in preferences.items() if key not in {"topic", "count"}})),
+            TurnPlan(action="generate", preferences=GenerationPreferences(**{key: value for key, value in preferences.items() if key != "count"})),
             DraftBatch(entries=[conversation_entry(identifier) for identifier in scenario["initial_entry_ids"]]),
         ]
         initial = send(client, conversation_id, scenario["clarification_answer"])
@@ -143,9 +143,9 @@ def test_quality_failure_during_revision_keeps_every_persisted_entry_and_version
 
 
 @pytest.mark.parametrize("scenario", ["missing_reference", "url_only", "blocked_import"])
-def test_reference_failure_scenarios_require_pasted_text_before_drafting(tmp_path: Path, scenario: str) -> None:
+def test_drafting_without_usable_references_preserves_import_permissions(tmp_path: Path, scenario: str) -> None:
     case = BY_ID["en-brief"]
-    provider = mocked_provider(TurnPlan(action="generate", preferences=GenerationPreferences(**case["constraints"])))
+    provider = mocked_provider(TurnPlan(action="message", preferences=GenerationPreferences(**case["constraints"])))
     resolver = AsyncMock(return_value=["127.0.0.1"])
     network_client = Mock(side_effect=AssertionError("Blocked imports must not open an HTTP client."))
     importer_factory = Mock(side_effect=lambda permissions: ReferenceImporter(permissions, resolver=resolver, client_factory=network_client))
@@ -154,9 +154,8 @@ def test_reference_failure_scenarios_require_pasted_text_before_drafting(tmp_pat
         conversation_id = client.post(BASE).json()["conversation_id"]
         url = f"{BASE}/{conversation_id}"
         fields = {} if scenario == "missing_reference" else {"source_urls": ["https://example.com/synthetic-fixture"]}
-        missing = send(client, conversation_id, "Generate one fictional draft.", **fields)
-        assert missing["kind"] == "clarification" and missing["entries"] == []
-        assert "sample or headline" in missing["assistant_message"]
+        saved = send(client, conversation_id, "Save these preferences and any supplied link.", **fields)
+        assert saved["kind"] == "message"
         provider.generate.assert_awaited_once()
         importer_factory.assert_not_called()
         resolver.assert_not_awaited()
@@ -169,18 +168,19 @@ def test_reference_failure_scenarios_require_pasted_text_before_drafting(tmp_pat
             assert blocked.status_code == 422 and blocked.json()["error"]["code"] == "reference_import_failed"
             resolver.assert_awaited_once()
             assert client.get(url).json()["references"]["urls"][0]["import_status"] == "failed"
-            provider.generate.side_effect = [TurnPlan(action="generate")]
-            still_missing = send(client, conversation_id, "Generate one fictional draft.")
-            assert still_missing["kind"] == "clarification"
-            assert provider.generate.await_count == 2
 
         provider.generate.side_effect = [TurnPlan(action="generate"), DraftBatch(entries=[case["candidate"]])]
-        recovered = send(client, conversation_id, "Use this authorized sample for one fictional draft.", examples=[case["reference"]])
-        assert recovered["kind"] == "generation" and len(recovered["entries"]) == 1
+        generated = send(client, conversation_id, "Generate one fictional draft.")
+        assert generated["kind"] == "generation" and len(generated["entries"]) == 1
+        assert provider.generate.await_count == 3
         network_client.assert_not_called()
+        if scenario != "blocked_import":
+            importer_factory.assert_not_called()
+            resolver.assert_not_awaited()
+        prompt = provider.generate.call_args.args[0]
+        data, _ = json.JSONDecoder().raw_decode(prompt.split("DATA_JSON:\n", 1)[1])
+        assert data["reference_patterns"]["samples"] == []
         if scenario != "missing_reference":
-            prompt = provider.generate.call_args.args[0]
-            data, _ = json.JSONDecoder().raw_decode(prompt.split("DATA_JSON:\n", 1)[1])
             link = data["reference_patterns"]["links"][0]
             assert link["source_text_status"] == "not_provided_for_model_use"
             assert link["import_status"] == ("failed" if scenario == "blocked_import" else "not_requested")

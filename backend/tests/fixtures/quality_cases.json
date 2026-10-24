@@ -474,7 +474,7 @@
     },
     "stable_instruction": "Keep subjects imaginary.",
     "opening_instruction": "Generate two fictional drafts. Keep subjects imaginary.",
-    "clarification_answer": "Use a neutral tone in English, announcement category, and 60 to 500 body characters.",
+    "clarification_answer": "Imaginary exhibitions and workshops. Use a neutral tone in English, announcement category, and 60 to 500 body characters.",
     "more_instruction": "Generate one more with a different subject.",
     "ambiguous_revision": "Make it shorter.",
     "selected_revision": "Entry 2 only.",

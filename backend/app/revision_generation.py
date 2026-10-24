@@ -35,7 +35,7 @@ class RevisionGenerationService:
         other_entries = validate_active_entries(other_entries)
         references = ReferenceCollection.model_validate(references.model_dump())
         if not 1 <= len(targets) <= MAX_ENTRIES or len(requests) != len(targets):
-            raise GenerationRejected("invalid_request", "Select between one and five revision targets.")
+            raise GenerationRejected("invalid_request", f"Select between 1 and {MAX_ENTRIES} revision targets.")
         if len({request.conversation_id for request in requests}) != 1 or any(request.count != 1 for request in requests):
             raise GenerationRejected("invalid_request", "Revision constraints must describe individual targets in one conversation.")
         if {entry.id for entry in targets} & {entry.id for entry in other_entries}:
@@ -45,8 +45,6 @@ class RevisionGenerationService:
         for request in requests:
             validate_generation_request(request)
         patterns, source_texts = summarize_references(references)
-        if not source_texts:
-            raise GenerationRejected("invalid_request", "Provide an authorized reference before revising drafts.")
         data = {
             "targets": [{"entry_id": str(target.id), "original": target.model_dump(mode="json", exclude={"id", "version"}), "constraints": request.model_dump(mode="json", exclude={"conversation_id"})} for target, request in zip(targets, requests)],
             "reference_patterns": patterns,
