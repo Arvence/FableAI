@@ -1,3 +1,35 @@
 {
-  "explorer.excludeGitIgnore": true
+  "explorer.excludeGitIgnore": false,
+  "files.exclude": {
+    "**/.env": false,
+    "**/.env.*": false,
+    "**/.gitignore": false,
+
+    "**/.pytest_cache": true,
+    "**/.venv": true,
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.mypy_cache": true,
+    "**/.ruff_cache": true,
+
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/coverage": true,
+    "**/.coverage": true,
+
+    "**/fableai.sqlite3": true,
+    "**/fableai.sqlite3-*": true,
+
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true
+  },
+  "search.exclude": {
+    "**/.venv": true,
+    "**/node_modules": true,
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/dist": true,
+    "**/coverage": true
+  }
 }

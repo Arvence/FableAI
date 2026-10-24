@@ -1,0 +1,17 @@
+{
+  "name": "fableai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start:all": "node scripts/dev.mjs all",
+    "start:frontend": "node scripts/dev.mjs frontend",
+    "start:backend": "node scripts/dev.mjs backend",
+    "start:all:setup": "node scripts/dev.mjs all --setup",
+    "setup": "node scripts/dev.mjs setup",
+    "test:scripts": "node --test scripts/dev.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
