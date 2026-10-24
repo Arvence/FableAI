@@ -1,14 +1,12 @@
-import { useEffect, useState } from 'react';
-import { ApiError, listConversations, loadConversation, request, review, submit } from './api';
+import { useEffect, useRef, useState } from 'react';
+import { ApiError, listConversations, loadConversation, request, submit } from './api';
 import { Composer } from './Composer';
-import { DraftCards } from './DraftCards';
 import { JsonView } from './JsonView';
 import { MessageHistory } from './MessageHistory';
-import { ReferencePanel } from './ReferencePanel';
 import { readSession, writeSession } from './session';
-import type { ChatInput, Conversation, ConversationSummary, Entry, ImportInput, ImportResponse, Message, PendingSubmission } from './types';
+import type { ChatInput, Conversation, ConversationSummary, Message, PendingSubmission } from './types';
 
-const failure = (error: unknown) => error instanceof ApiError ? error : new ApiError('The action could not be completed. Refresh the chat and try again.');
+const failure = (error: unknown) => error instanceof ApiError ? error : new ApiError('The action could not be completed. Reload the page and try again.');
 
 export function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -21,11 +19,8 @@ export function App() {
   const [error, setError] = useState<ApiError | null>(null);
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState<PendingSubmission | null>(null);
-  const [targets, setTargets] = useState<ChatInput['revision_targets']>([]);
   const [reset, setReset] = useState(0);
-  const [lastImport, setLastImport] = useState<ImportResponse | null>(null);
-  const [reload, setReload] = useState(0);
-
+  const deleteDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const controller = new AbortController();
     listConversations(0, controller.signal).then(page => {
@@ -37,7 +32,7 @@ export function App() {
       if (!controller.signal.aborted) { setError(failure(reason)); setLoading(false); }
     });
     return () => controller.abort();
-  }, [reload]);
+  }, []);
 
   useEffect(() => {
     if (!selected) return;
@@ -45,8 +40,6 @@ export function App() {
     writeSession('selected', selected);
     setConversation(null);
     setMessages([]);
-    setTargets([]);
-    setLastImport(null);
     setNotice('');
     setError(null);
     setPending(readSession(`pending:${selected}`, null));
@@ -65,7 +58,29 @@ export function App() {
       }
     });
     return () => controller.abort();
-  }, [selected, reload]);
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selected || !conversation?.processing || busy) return;
+    const controller = new AbortController();
+    let fetching = false;
+    const timer = window.setInterval(async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const state = await loadConversation(selected, controller.signal);
+        if (!controller.signal.aborted) {
+          setConversation(state.detail);
+          setMessages(state.messages);
+        }
+      } catch (reason) {
+        if (!controller.signal.aborted) setError(failure(reason));
+      } finally {
+        fetching = false;
+      }
+    }, 3000);
+    return () => { window.clearInterval(timer); controller.abort(); };
+  }, [selected, conversation?.processing, busy]);
 
   async function refresh() {
     const [page, state] = await Promise.all([listConversations(), loadConversation(selected)]);
@@ -86,6 +101,47 @@ export function App() {
       setError(failure(reason));
     } finally {
       setBusy('');
+    }
+  }
+
+  async function deleteChat() {
+    if (!selected || busy || loading) return;
+    const id = selected;
+    deleteDialog.current?.close();
+    setBusy('Deleting chat…');
+    setError(null);
+    setNotice('');
+    let deleted = false;
+    try {
+      try {
+        await request<void>(`/${id}`, { method: 'DELETE' });
+      } catch (reason) {
+        if (!(reason instanceof ApiError) || reason.response?.error.code !== 'conversation_not_found') throw reason;
+      }
+      deleted = true;
+      writeSession(`draft:${id}`, null);
+      writeSession(`pending:${id}`, null);
+      writeSession('selected', null);
+      setSelected('');
+      setConversation(null);
+      setMessages([]);
+      setPending(null);
+      setConversations(value => value.filter(item => item.conversation_id !== id));
+      setNextOffset(null);
+      setNotice('Chat deleted.');
+      const page = await listConversations();
+      setConversations(page.items);
+      setNextOffset(page.next_offset);
+      setSelected(page.items[0]?.conversation_id || '');
+    } catch (reason) {
+      setError(failure(reason));
+    } finally {
+      setBusy('');
+      requestAnimationFrame(() => {
+        const activeChat = document.querySelector<HTMLButtonElement>('.chat-link[aria-current="page"]');
+        const control = deleted ? (activeChat ?? document.getElementById('new-chat')) : document.getElementById('delete-chat');
+        control?.focus();
+      });
     }
   }
 
@@ -111,12 +167,10 @@ export function App() {
       setPending(null);
       writeSession(`pending:${selected}`, null);
       if (result.kind === 'reference_import') {
-        setLastImport(result);
         setNotice('Reference imported and saved.');
       } else {
         setReset(value => value + 1);
         writeSession(`draft:${selected}`, null);
-        setTargets([]);
         setNotice('Response saved.');
       }
     } catch (reason) {
@@ -138,59 +192,58 @@ export function App() {
     await perform({ conversationId: selected, key: crypto.randomUUID(), operation: 'messages', body });
   }
 
-  async function importReference(body: ImportInput) {
-    await perform({ conversationId: selected, key: crypto.randomUUID(), operation: 'references/import', body });
-  }
-
-  async function reviewEntry(entry: Entry, status: 'accepted' | 'rejected') {
-    setBusy('Saving review…');
-    setError(null);
-    try {
-      await review(selected, entry, status);
-      setNotice(`Entry marked ${status}.`);
-    } catch (reason) { setError(failure(reason)); }
-    finally {
-      try { await refresh(); } catch (reason) { setError(failure(reason)); }
-      setBusy('');
-    }
-  }
-
-  function target(entry: Entry) {
-    setTargets(value => value.some(item => item.entry_id === entry.id) ? value.filter(item => item.entry_id !== entry.id) : [...value, { entry_id: entry.id, expected_version: entry.version }]);
-  }
-
   const blocked = !!busy || loading;
   const mutationBlocked = blocked || !!pending || !!conversation?.processing;
 
+  const chatItems = selected && !conversations.some(item => item.conversation_id === selected)
+    ? [{ conversation_id: selected, created_at: conversation?.created_at ?? '' }, ...conversations]
+    : conversations;
+
   return <div className="app-shell">
     <a className="skip-link" href="#instruction">Skip to message input</a>
-    <header className="app-header"><div><h1>FableAI</h1><p>Fictional news & announcement drafts</p></div><span className="badge">Local workspace</span></header>
-    <nav className="conversation-bar" aria-label="Conversation controls">
-      <div className="conversation-select"><label htmlFor="conversation">Conversation</label><select id="conversation" value={selected} onChange={event => setSelected(event.target.value)} disabled={blocked || !conversations.length}>
-        {!selected && <option value="">Select a chat</option>}
-        {selected && !conversations.some(item => item.conversation_id === selected) && <option value={selected}>Chat {selected.slice(0, 8)}</option>}
-        {conversations.map(item => <option key={item.conversation_id} value={item.conversation_id}>Chat {item.conversation_id.slice(0, 8)} · {new Date(item.created_at).toLocaleString()}</option>)}
-      </select></div>
-      <button type="button" onClick={newChat} disabled={blocked}>New chat</button>
-      {nextOffset !== null && <button type="button" onClick={loadMore} disabled={blocked}>Load older chats</button>}
-      <button type="button" onClick={() => setReload(value => value + 1)} disabled={blocked}>Refresh</button>
-    </nav>
-    <div className="feedback">
-      <p className="status-line" role="status">{busy || (loading ? 'Loading conversation…' : notice)}</p>
-      {error && <div className="error-banner" role="alert"><strong>{error.response?.error.code === 'rate_limited' ? 'Gemini quota reached. Wait before sending again.' : 'Request could not complete.'}</strong><p>{error.message}</p>{error.response && <JsonView value={error.response} />}</div>}
-      {pending && !busy && <div className="pending-banner"><p>This submission is not confirmed yet. Retry uses the same request ID and will not duplicate a completed result.</p><button type="button" onClick={() => perform(pending)} disabled={loading}>Retry same submission</button></div>}
-      {conversation?.processing && !busy && <p role="status">A saved request is still processing. Use Refresh to check its status. Interrupted requests can take up to three minutes to become recoverable.</p>}
-    </div>
-    {conversation ? <main className="workspace" aria-busy={!!busy}>
-      <div className="chat-column"><h2 className="section-title">Conversation</h2><MessageHistory messages={messages} />
-        <Composer key={selected} conversationId={selected} disabled={mutationBlocked} targets={targets} reset={reset} onSend={send} onClearTargets={() => setTargets([])} />
+    <aside className="sidebar" aria-label="Chat sidebar">
+      <div className="sidebar-heading"><h1>FableAI</h1></div>
+      <nav className="sidebar-actions" aria-label="Conversation controls">
+        <button id="new-chat" className="sidebar-action new-chat" type="button" onClick={newChat} disabled={blocked} aria-label="New chat" title="New chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg><span className="sidebar-label">New chat</span>
+        </button>
+        <button id="delete-chat" className="sidebar-action danger" type="button" onClick={() => deleteDialog.current?.showModal()} disabled={blocked || !selected} aria-label="Delete chat" title="Delete chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg><span className="sidebar-label">Delete chat</span>
+        </button>
+      </nav>
+      <nav className="chat-list" aria-label="Chats">
+        <ul>
+          {chatItems.map(item => <li key={item.conversation_id}>
+            <button className="chat-link" type="button" data-conversation-id={item.conversation_id} aria-current={selected === item.conversation_id ? 'page' : undefined} aria-label={'Chat ' + item.conversation_id.slice(0, 8)} title={'Chat ' + item.conversation_id.slice(0, 8) + (item.created_at ? ' · ' + new Date(item.created_at).toLocaleString() : '')} onClick={() => setSelected(item.conversation_id)} disabled={blocked}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 19 0Z" /><path d="M7 9h10M7 13h6" /></svg>
+              <span className="sidebar-label chat-label"><span>Chat {item.conversation_id.slice(0, 8)}</span>{item.created_at && <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</time>}</span>
+            </button>
+          </li>)}
+        </ul>
+        {nextOffset !== null && <button className="sidebar-action older-chats" type="button" onClick={loadMore} disabled={blocked} aria-label="Load older chats" title="Load older chats">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h.01M12 12h.01M19 12h.01" strokeWidth="3" /></svg><span className="sidebar-label">Load older chats</span>
+        </button>}
+      </nav>
+    </aside>
+    <dialog className="delete-dialog" ref={deleteDialog} aria-labelledby="delete-chat-title" aria-describedby="delete-chat-description">
+      <h2 id="delete-chat-title">Delete this chat?</h2>
+      <p id="delete-chat-description">This permanently deletes the selected chat, including its messages, references, drafts, and review history.</p>
+      <div className="dialog-actions">
+        <button type="button" onClick={() => deleteDialog.current?.close()} autoFocus>Cancel</button>
+        <button className="danger" type="button" onClick={deleteChat}>Delete chat</button>
       </div>
-      <aside className="context-column" aria-label="Drafts and references">
-        <DraftCards entries={conversation.entries} disabled={mutationBlocked} targets={targets} onTarget={target} onReview={reviewEntry} />
-        <ReferencePanel references={conversation.references} disabled={mutationBlocked} onImport={importReference} />
-        {lastImport && <section className="panel"><h2>Latest import response</h2><JsonView value={lastImport} /></section>}
-      </aside>
-    </main> : !loading && <main className="welcome"><h2>Your fictional drafting workspace</h2><p>Create a chat to add examples and start a conversation. Saved chats will appear in the selector above.</p><button className="primary" type="button" onClick={newChat} disabled={blocked}>Create your first chat</button></main>}
-    <footer>All generated content is synthetic. Nothing is published from this workspace.</footer>
+    </dialog>
+    <main className="chat-workspace" aria-busy={blocked}>
+      <div className="feedback">
+        <p className="sr-only" role="status">{busy || (loading ? 'Loading conversation…' : notice)}</p>
+        {error && <div className="error-banner" role="alert"><strong>{error.response?.error.code === 'rate_limited' ? 'Gemini quota reached. Wait before sending again.' : 'Request could not complete.'}</strong><p>{error.message}</p>{error.response && <JsonView value={error.response} />}</div>}
+        {pending && !busy && <div className="pending-banner"><p>This submission is not confirmed yet. Retry uses the same request ID and will not duplicate a completed result.</p><button type="button" onClick={() => perform(pending)} disabled={loading}>Retry same submission</button></div>}
+        {conversation?.processing && !busy && <p role="status">A saved request is still processing. Its status is checked automatically. Interrupted requests can take up to three minutes to become recoverable.</p>}
+      </div>
+      {selected ? <>
+        <MessageHistory key={selected} messages={messages} createdAt={conversation?.created_at} loading={loading} />
+        <div className="composer-dock"><Composer key={selected} conversationId={selected} disabled={mutationBlocked} reset={reset} onSend={send} /></div>
+      </> : !loading && <section className="welcome"><h2>Start a conversation</h2><button className="primary" type="button" onClick={newChat} disabled={blocked}>Create your first chat</button></section>}
+    </main>
   </div>;
 }

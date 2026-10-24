@@ -3,8 +3,8 @@ import type { ChatInput, Entry } from './types';
 export function DraftCards({ entries, disabled, targets, onTarget, onReview }: { entries: Entry[]; disabled: boolean; targets: ChatInput['revision_targets']; onTarget: (entry: Entry) => void; onReview: (entry: Entry, status: 'accepted' | 'rejected') => Promise<void> }) {
   return <section className="panel drafts" aria-labelledby="drafts-title">
     <h2 id="drafts-title">Current drafts <span className="count">{entries.length}</span></h2>
-    <p className="muted">Fictional content for review. Accepting a draft saves your decision locally.</p>
-    {!entries.length && <p>No drafts yet. Ask for fictional news or announcements in the chat.</p>}
+    <p className="muted">Review, accept, or revise individual entries.</p>
+    {!entries.length && <p className="muted">Generated drafts will appear here.</p>}
     {entries.map((entry, index) => <article className="draft-card" key={entry.id} aria-label={`Entry ${index + 1}`}>
       <div className="draft-meta"><span className="badge synthetic">Synthetic · Fictional</span><span>Entry {index + 1} · v{entry.version}</span></div>
       <h3>{entry.title}</h3>

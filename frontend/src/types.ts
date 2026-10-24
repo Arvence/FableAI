@@ -64,6 +64,7 @@ export interface Conversation extends ConversationSummary {
 
 export interface Message {
   message_id: string;
+  submission_id: string;
   sequence: number;
   role: 'user' | 'assistant';
   content: string;
