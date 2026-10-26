@@ -3,18 +3,24 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_CONTEXT_CHARS, MAX_CONTEXT_MESSAGES, MAX_ENTRIES, MAX_ENTRY_BODY_CHARS, MAX_GENERATION_BODY_CHARS, ChatMessage, ChatTurnRequest, ClarificationResponse, ErrorInfo, ErrorResponse, GeneratedEntry, GenerationRequest, MessageResponse, RevisionResponse, RevisionTarget
+from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_CONTEXT_CHARS, MAX_CONTEXT_MESSAGES, MAX_ENTRIES, MAX_ENTRY_BODY_CHARS, MAX_GENERATION_BODY_CHARS, MAX_HEADLINE_CHARS, ChatMessage, ChatTurnRequest, ClarificationResponse, ErrorInfo, ErrorResponse, GeneratedEntry, GenerationRequest, ReferenceCollection, MessageResponse, RevisionResponse, RevisionTarget
 from app.conversation_context import build_turn_prompt, encode_drafting_context
 from app.conversation_contracts import DEFAULT_GENERATION_PREFERENCES, ConversationResponse, ConversationSnapshot, ConversationTurnResult, GenerationPreferences, PendingTurn, TurnPlan
 from app.gemini_provider import GeminiProvider, GeminiProviderError
-from app.generation_checks import UNSUPPORTED_TOPIC, GenerationRejected, normalized_words
+from app.generation_checks import UNSUPPORTED_TOPIC, GenerationRejected
 from app.reference_management import ReferenceInputs, ReferenceLink, prepare_references
 from app.revision_generation import RevisionGenerationService
 from app.synthetic_generation import SyntheticGenerationService
+from app.turn_context import current_subject, generation_fallback, refers_to_context, requested_category, scoped_snapshot
 
 
-NUMBER_WORDS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
-ORDINAL_WORDS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6}
+NUMBER_WORDS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20}
+ORDINAL_WORDS = {
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+    "eleventh": 11, "twelfth": 12, "thirteenth": 13, "fourteenth": 14, "fifteenth": 15,
+    "sixteenth": 16, "seventeenth": 17, "eighteenth": 18, "nineteenth": 19, "twentieth": 20,
+}
 UUID_PATTERN = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 
 
@@ -22,23 +28,39 @@ def _explicit_count(request: ChatTurnRequest, topic: str | None) -> int | None:
     if request.generation_count is not None:
         return request.generation_count
     number_pattern = r"-?\d+|" + "|".join(NUMBER_WORDS)
-    match = re.search(rf"\b(?:generate|create|write)\s+({number_pattern})\b", request.instruction, re.IGNORECASE)
+    match = re.search(rf"\b(?:generate|create|write|produce|make|give me|i want|i would like|i'd like)\s+({number_pattern})\b", request.instruction, re.IGNORECASE)
     if match is None:
-        match = re.search(rf"\s+({number_pattern})[.!?]?\s*$", request.instruction, re.IGNORECASE)
-        if match is None or topic is None:
-            return None
-        subject = normalized_words(request.instruction[:match.start()])
-        if subject and subject[0] == "please":
-            subject = subject[1:]
-        if subject and subject[0] in {"generate", "create", "write"}:
-            subject = subject[1:]
-        if subject != normalized_words(topic):
-            return None
+        match = re.match(rf"\s*({number_pattern})\s+(?:(?:new|fictional|news|announcement)\s+)*(?:drafts?|entries|articles?|stories|announcements?)\b", request.instruction, re.IGNORECASE)
+    if match is None:
+        return None
     value = match[1].lower()
     count = NUMBER_WORDS[value] if value in NUMBER_WORDS else int(value)
-    if topic and re.search(rf"\b(?:{re.escape(value)}|{count})\b", topic, re.IGNORECASE):
+    counted_noun = re.match(r"\s+(?:(?:new|fictional|short|long|formal|neutral|informative|playful|news)\s+)*(?:drafts?|entries|articles?|stories|announcements?)\b", request.instruction[match.end(1):], re.IGNORECASE)
+    if counted_noun is None and topic and re.search(rf"\b(?:{re.escape(value)}|{count})\b", topic, re.IGNORECASE):
         return None
     return count
+
+
+def _new_draft_topic(instruction: str) -> str | None:
+    match = re.match(r"^\s*(?:please\s+)?(?:create|generate|write)(?:\s+me)?\s+(.+)", instruction, re.IGNORECASE | re.DOTALL)
+    if match is None:
+        return None
+    subject = match[1].strip()
+    generic = {"a", "an", "the", "some", "new", "fictional", "draft", "drafts", "entry", "entries", "content", "news", "announcement", "announcements", "article", "articles", "story", "stories", "something", "more", "please", *NUMBER_WORDS}
+    opening = re.split(r"[.!?]\s+", subject, maxsplit=1)[0]
+    if not any(word.casefold() not in generic for word in re.findall(r"[^\W\d_]+", opening)):
+        return None
+    return subject[:MAX_HEADLINE_CHARS]
+
+
+def _settings_clarification(plan: TurnPlan) -> bool:
+    if plan.action != "clarification":
+        return False
+    if plan.clarification_reason == "missing_settings":
+        return True
+    if plan.clarification_reason in {"missing_topic", "revision_target"}:
+        return False
+    return bool(re.search(r"\b(?:how many (?:drafts|entries)|(?:choose|select|specify|provide)\b[^?.]*\b(?:drafts per turn|draft count|number of drafts))", plan.question or "", re.IGNORECASE))
 
 
 def _resolve_targets(request: ChatTurnRequest, snapshot: ConversationSnapshot) -> list[RevisionTarget] | None:
@@ -67,6 +89,8 @@ def _resolve_targets(request: ChatTurnRequest, snapshot: ConversationSnapshot) -
         if not mentioned <= by_id.keys():
             raise GenerationRejected("entry_not_found", "A selected entry does not belong to this conversation.")
         targets = [RevisionTarget(entry_id=entry.id, expected_version=entry.version) for entry in entries if entry.id in mentioned]
+    elif entries and re.search(r"\b(?:previous|last|latest)\s+(?:article|draft|entry|story)\b", request.instruction, re.IGNORECASE):
+        targets = [RevisionTarget(entry_id=entries[-1].id, expected_version=entries[-1].version)]
     elif snapshot.pending and snapshot.pending.action == "revise" and snapshot.pending.targets:
         targets = snapshot.pending.targets
     elif len(entries) == 1:
@@ -157,13 +181,50 @@ class ConversationService:
             raise GenerationRejected("invalid_request", "This conversation supports original fictional drafts, not copying, verification, impersonation, or attribution overrides.")
         if request.revision_targets:
             _resolve_targets(request, snapshot)
-        result = await self._provider.generate(build_turn_prompt(request, snapshot), TurnPlan)
+        fresh_topic = _new_draft_topic(request.instruction)
+        use_history = refers_to_context(request, snapshot, fresh_topic)
+        interpretation = scoped_snapshot(request, snapshot, use_history)
+        result = await self._provider.generate(build_turn_prompt(request, interpretation), TurnPlan)
         if not isinstance(result, TurnPlan):
             raise GenerationRejected("generation_failed", "The provider did not return a validated turn interpretation.")
         plan = TurnPlan.model_validate(result.model_dump())
         action = "clarification" if plan.action == "clarification" else "revise" if request.revision_targets else "generate" if request.generation_count is not None else plan.action
-        explicit_count = _explicit_count(request, plan.preferences.topic) if action == "generate" or request.generation_count is not None else None
-        updates = plan.preferences.model_dump(exclude_none=True)
+        explicit_count = _explicit_count(request, plan.preferences.topic) if action in {"generate", "clarification"} or request.generation_count is not None else None
+        recover_settings = _settings_clarification(plan) and not request.revision_targets and (fresh_topic is not None or plan.preferences.topic is not None)
+        if recover_settings or generation_fallback(request, plan, current_subject(request, fresh_topic)):
+            action = "generate"
+        selected = request.generation_settings.model_dump(exclude_none=True) if request.generation_settings is not None and action == "generate" else {}
+        if recover_settings:
+            selected = {**DEFAULT_GENERATION_PREFERENCES.model_dump(exclude_none=True), **selected}
+        explicit = plan.preferences.model_dump(exclude_none=True)
+        if action == "generate":
+            category = requested_category(request.instruction)
+            if category is not None:
+                explicit["category"] = category
+            elif "category" in selected:
+                explicit.pop("category", None)
+        if action == "generate" and not use_history:
+            explicit["topic"] = current_subject(request, fresh_topic) or plan.preferences.topic
+        elif recover_settings and fresh_topic is not None:
+            explicit["topic"] = fresh_topic
+        if action == "generate" and not use_history:
+            snapshot.preferences = GenerationPreferences()
+            snapshot.pending = None
+        elif action == "generate":
+            pending_count = snapshot.pending.preference_changes.count if snapshot.pending and snapshot.pending.action == "generate" else None
+            snapshot.preferences.count = pending_count or DEFAULT_GENERATION_PREFERENCES.count
+        answering_generation = use_history and snapshot.pending is not None and snapshot.pending.action == "generate"
+        if action == "generate" and ("count" in selected or not answering_generation) and explicit_count is None:
+            explicit.pop("count", None)
+        updates = {**selected, **explicit}
+        if "min_body_chars" in explicit and "max_body_chars" not in explicit and "max_body_chars" in selected:
+            updates["max_body_chars"] = max(explicit["min_body_chars"], selected["max_body_chars"])
+        if "max_body_chars" in explicit and "min_body_chars" not in explicit and "min_body_chars" in selected:
+            updates["min_body_chars"] = min(explicit["max_body_chars"], selected["min_body_chars"])
+        if "min_body_chars" in updates and "max_body_chars" not in updates and selected:
+            updates["max_body_chars"] = max(updates["min_body_chars"], snapshot.preferences.max_body_chars or DEFAULT_GENERATION_PREFERENCES.max_body_chars)
+        if "max_body_chars" in updates and "min_body_chars" not in updates and selected:
+            updates["min_body_chars"] = min(updates["max_body_chars"], snapshot.preferences.min_body_chars or DEFAULT_GENERATION_PREFERENCES.min_body_chars)
         if explicit_count is not None:
             updates["count"] = explicit_count
         requested_count = updates.get("count")
@@ -195,7 +256,7 @@ class ConversationService:
         defaults["min_body_chars"] = min(defaults["min_body_chars"], values.get("max_body_chars", defaults["max_body_chars"]))
         defaults["max_body_chars"] = max(defaults["max_body_chars"], values.get("min_body_chars", defaults["min_body_chars"]))
         snapshot.preferences = GenerationPreferences.model_validate({**defaults, **values})
-        previous_pending = snapshot.pending if snapshot.pending and snapshot.pending.action == action else None
+        previous_pending = snapshot.pending if snapshot.pending and snapshot.pending.action == action and not (action == "generate" and fresh_topic is not None) else None
         length_change = plan.length_change
         if re.search(r"\b(?:shorter|shorten)\b", request.instruction, re.IGNORECASE):
             length_change = "shorter"
@@ -212,12 +273,15 @@ class ConversationService:
             return _clarify(snapshot, request, question)
         if snapshot.preferences.topic is None:
             return _clarify(snapshot, request, "What would you like the fictional drafts to be about?")
-        context = encode_drafting_context(snapshot, request.instruction)
+        context_snapshot = scoped_snapshot(request, snapshot, use_history or action == "revise")
+        context_snapshot.preferences = snapshot.preferences.model_copy(deep=True)
+        context_snapshot.pending = snapshot.pending.model_copy(deep=True) if snapshot.pending else None
+        context = encode_drafting_context(context_snapshot, request.instruction)
         if action == "generate":
-            return await self._generate(request, snapshot, context)
+            return await self._generate(request, snapshot, context, context_snapshot.references)
         return await self._revise(request, snapshot, targets, revision_changes, length_change, context)
 
-    async def _generate(self, request: ChatTurnRequest, snapshot: ConversationSnapshot, context: str) -> ConversationTurnResult:
+    async def _generate(self, request: ChatTurnRequest, snapshot: ConversationSnapshot, context: str, references: ReferenceCollection) -> ConversationTurnResult:
         preferences = snapshot.preferences
         if preferences.count * preferences.max_body_chars > MAX_GENERATION_BODY_CHARS:
             return _clarify(snapshot, request, "Reduce the count or maximum body length so the batch is at most 12000 characters.")
@@ -226,7 +290,7 @@ class ConversationService:
         if sum(len(entry.body) for entry in snapshot.active_entries) + preferences.count * preferences.max_body_chars > MAX_ACTIVE_BODY_CHARS:
             return _clarify(snapshot, request, "The active draft budget is full. Request shorter drafts or start a new conversation.")
         generation_request = _generation_request(snapshot, count=preferences.count)
-        response = await self._generation.generate(generation_request, snapshot.references, context=context, existing_entries=snapshot.active_entries)
+        response = await self._generation.generate(generation_request, references, context=context, existing_entries=snapshot.active_entries)
         if isinstance(response, ErrorResponse):
             return ConversationTurnResult(response=response, snapshot=None)
         snapshot.active_entries.extend(response.entries)

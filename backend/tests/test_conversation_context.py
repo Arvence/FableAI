@@ -138,7 +138,7 @@ def test_active_and_output_budgets_block_drafting_before_second_model_call(limit
         state.preferences.max_body_chars = 3_000
     mocked = provider()
     mocked.generate.return_value = TurnPlan(action="generate")
-    result = asyncio.run(ConversationService(mocked).handle_turn(ChatTurnRequest(conversation_id=state.conversation_id, instruction="Generate more."), state))
+    result = asyncio.run(ConversationService(mocked).handle_turn(ChatTurnRequest(conversation_id=state.conversation_id, instruction="Generate five more." if limit == "batch" else "Generate more."), state))
     assert result.response.kind == "clarification"
     assert result.snapshot.active_entries == state.active_entries
     mocked.generate.assert_awaited_once()

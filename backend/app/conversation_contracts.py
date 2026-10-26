@@ -2,7 +2,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
-from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_ENTRY_BODY_CHARS, MAX_ENTRIES, MAX_INSTRUCTION_CHARS, ClarificationResponse, ContractModel, Conversation, ErrorResponse, GeneratedEntry, GenerationResponse, Headline, Instruction, LanguageCode, MessageResponse, RevisionResponse, RevisionTarget
+from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_ENTRY_BODY_CHARS, MAX_ENTRIES, MAX_INSTRUCTION_CHARS, ClarificationResponse, ContentCategory, ContractModel, Conversation, ErrorResponse, GeneratedEntry, GenerationResponse, Headline, Instruction, LanguageCode, MessageResponse, RevisionResponse, RevisionTarget
 
 
 MAX_STABLE_INSTRUCTIONS = 8
@@ -13,7 +13,7 @@ class InterpretedPreferences(ContractModel):
     topic: Headline | None = None
     count: int | None = None
     tone: Literal["neutral", "formal", "informative", "playful"] | None = None
-    category: Literal["news", "announcement"] | None = None
+    category: ContentCategory | None = None
     language: LanguageCode | None = None
     min_body_chars: int | None = Field(default=None, ge=1, le=MAX_ENTRY_BODY_CHARS)
     max_body_chars: int | None = Field(default=None, ge=1, le=MAX_ENTRY_BODY_CHARS)
@@ -37,6 +37,7 @@ class TurnPlan(ContractModel):
     preferences: InterpretedPreferences = Field(default_factory=InterpretedPreferences)
     stable_instruction: Instruction | None = None
     question: str | None = Field(default=None, min_length=1, max_length=500)
+    clarification_reason: Literal["missing_topic", "revision_target", "missing_settings", "unsupported_requirement", "ambiguous_intent"] | None = None
     length_change: LengthChange = "keep"
 
 

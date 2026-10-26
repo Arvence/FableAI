@@ -10,7 +10,8 @@ MAX_TOTAL_REFERENCE_CHARS = 30_000
 MAX_HEADLINE_CHARS = 200
 MAX_URLS = 5
 MAX_URL_CHARS = 2_048
-MAX_ENTRIES = 6
+MAX_ACTIVE_ENTRIES = 20
+MAX_ENTRIES = MAX_ACTIVE_ENTRIES
 MAX_ENTRY_BODY_CHARS = 6_000
 MAX_TAGS = 8
 MAX_TAG_CHARS = 32
@@ -19,7 +20,6 @@ MAX_CONTEXT_MESSAGES = 20
 MAX_CONTEXT_CHARS = 40_000
 MAX_ERROR_DETAILS = 20
 MAX_GENERATION_BODY_CHARS = 12_000
-MAX_ACTIVE_ENTRIES = 20
 MAX_ACTIVE_BODY_CHARS = 24_000
 
 Identifier = Annotated[UUID4, Field(strict=False)]
@@ -128,6 +128,26 @@ class RevisionTarget(ContractModel):
     expected_version: int = Field(ge=1)
 
 
+ContentCategory = Literal["news", "announcement", "update", "article", "blog"]
+
+
+class GenerationSettings(ContractModel):
+    count: int | None = Field(default=None, ge=1, le=MAX_ENTRIES)
+    tone: Literal["neutral", "formal", "informative", "playful"] | None = None
+    category: ContentCategory | None = None
+    language: LanguageCode | None = None
+    min_body_chars: int | None = Field(default=None, ge=1, le=MAX_ENTRY_BODY_CHARS)
+    max_body_chars: int | None = Field(default=None, ge=1, le=MAX_ENTRY_BODY_CHARS)
+
+    @model_validator(mode="after")
+    def validate_settings(self) -> Self:
+        if self.min_body_chars is not None and self.max_body_chars is not None and self.min_body_chars > self.max_body_chars:
+            raise ValueError("Minimum body length cannot exceed maximum body length.")
+        if self.count is not None and self.max_body_chars is not None and self.count * self.max_body_chars > MAX_GENERATION_BODY_CHARS:
+            raise ValueError(f"Requested bodies cannot exceed {MAX_GENERATION_BODY_CHARS} characters per batch.")
+        return self
+
+
 class ChatTurnInput(ContractModel):
     instruction: Instruction
     examples: list[ReferenceContent] = Field(default_factory=list, max_length=MAX_REFERENCES)
@@ -135,6 +155,7 @@ class ChatTurnInput(ContractModel):
     source_urls: list[SourceUrl] = Field(default_factory=list, max_length=MAX_URLS)
     import_urls: bool = False
     generation_count: int | None = Field(default=None, ge=1, le=MAX_ENTRIES)
+    generation_settings: GenerationSettings | None = None
     revision_targets: list[RevisionTarget] = Field(default_factory=list, max_length=MAX_ENTRIES)
 
     @model_validator(mode="after")
@@ -174,7 +195,7 @@ class GenerationRequest(ContractModel):
     topic: Headline
     count: int = Field(ge=1, le=MAX_ENTRIES)
     tone: Literal["neutral", "formal", "informative", "playful"]
-    category: Literal["news", "announcement"]
+    category: ContentCategory
     language: LanguageCode
     min_body_chars: int = Field(ge=1, le=MAX_ENTRY_BODY_CHARS)
     max_body_chars: int = Field(ge=1, le=MAX_ENTRY_BODY_CHARS)
@@ -207,7 +228,7 @@ class Conversation(ContractModel):
 class EntryContent(ContractModel):
     title: Headline
     body: str = Field(min_length=1, max_length=MAX_ENTRY_BODY_CHARS)
-    category: Literal["news", "announcement"]
+    category: ContentCategory
     tags: list[Annotated[str, StringConstraints(min_length=1, max_length=MAX_TAG_CHARS)]] = Field(max_length=MAX_TAGS)
     language: LanguageCode
     is_synthetic: Literal[True]

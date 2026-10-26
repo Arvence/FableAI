@@ -349,7 +349,7 @@ def test_illustrative_error_json() -> None:
         "error": {
             "code": "invalid_request",
             "message": "The chat turn contains an invalid value.",
-            "details": [{"field": "generation_count", "message": "Choose a count between 1 and 6."}]
+            "details": [{"field": "generation_count", "message": "Choose a count between 1 and 20."}]
         }
     }''')
     assert response.error.code == "invalid_request"
@@ -375,3 +375,22 @@ def test_response_schema_exposes_four_discriminated_variants() -> None:
     for reference in schema["discriminator"]["mapping"].values():
         variant = schema["$defs"][reference.rsplit("/", 1)[1]]
         assert {"conversation_id", "message_id", "kind", "assistant_message", "entries"} <= set(variant["required"])
+
+
+@pytest.mark.parametrize("settings", [
+    {"count": 0}, {"count": MAX_ENTRIES + 1}, {"count": True}, {"count": "2"},
+    {"tone": "sarcastic"}, {"category": "report"}, {"language": "English"},
+    {"min_body_chars": 0}, {"max_body_chars": 6001},
+    {"min_body_chars": 300, "max_body_chars": 100},
+    {"count": 20, "max_body_chars": 1200}, {"topic": "unexpected"},
+])
+def test_invalid_selected_generation_settings_are_rejected(settings: dict) -> None:
+    with pytest.raises(ValidationError):
+        ChatTurnRequest(instruction="A rainy afternoon", generation_settings=settings)
+
+
+def test_generation_settings_are_optional_and_do_not_conflict_with_revision_targets() -> None:
+    assert ChatTurnRequest(instruction="A rainy afternoon").generation_settings is None
+    request = ChatTurnRequest(conversation_id=CONVERSATION_ID, instruction="Shorten entry 1.", generation_settings={"count": 10, "category": "news"}, revision_targets=[{"entry_id": ENTRY_ID, "expected_version": 1}])
+    assert request.generation_settings.count == 10
+    assert ChatTurnRequest.model_validate_json(request.model_dump_json()) == request

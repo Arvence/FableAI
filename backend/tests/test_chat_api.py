@@ -14,12 +14,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Settings
-from app.contracts import DraftBatch, ErrorResponse
+from app.contracts import MAX_ENTRIES, DraftBatch, ErrorResponse
 from app.conversation_contracts import GenerationPreferences, TurnPlan
 from app.conversation_repository import PROCESSING_LEASE_SECONDS
 from app.gemini_provider import GeminiProvider, GeminiProviderError, ProviderFailure
 from app.main import create_app
 from app.revision_generation import RevisionBatch
+from draft_samples import rainy_day_batch
+from fictional_samples import CASES, content_for
 
 
 BASE = "/api/v1/conversations"
@@ -155,7 +157,8 @@ def test_message_pagination_preserves_full_history_beyond_context_window(api_fac
         assert third["next_after"] is None
         context = json.loads(provider.generate.call_args.args[0].split("DATA_JSON:\n", 1)[1])["conversation"]
         assert len(context["recent_messages"]) <= 6
-        assert context["omitted_message_count"] > 0
+        assert context["recent_messages"] == []
+        assert context["preferences"]["topic"] is None
 
 
 def test_repeated_submission_replays_exact_result_after_restart(api_factory: Callable) -> None:
@@ -256,7 +259,7 @@ def test_concurrent_duplicate_and_different_turns_do_not_call_model_twice(api_fa
                 assert duplicate.status_code == another.status_code == 409
                 assert client.get(f"{BASE}/{conversation_id}").json()["processing"] is True
                 assert len(client.get(url).json()["items"]) == 1
-                assert send(client, another_id, "An independent conversation.").status_code == 200
+                assert send(client, another_id, "Save an independent preference.").status_code == 200
                 assert calls == 2
             finally:
                 release.set()
@@ -272,7 +275,7 @@ def test_stale_submission_recovers_after_restart_without_automatic_model_retry(a
         repository._clock = lambda: datetime.now(UTC) - timedelta(seconds=PROCESSING_LEASE_SECONDS + 1)
         from app.contracts import ChatTurnInput
         body = ChatTurnInput(instruction="Save the interrupted preference.")
-        repository.begin(UUID(conversation_id), key, "message", body.model_dump(mode="json"))
+        repository.begin(UUID(conversation_id), key, "message", body.model_dump(mode="json", exclude={"generation_settings"}))
         assert client.get(f"{BASE}/{conversation_id}").json()["processing"] is True
     with api_factory() as (client, provider):
         url = f"{BASE}/{conversation_id}/messages"
@@ -283,7 +286,7 @@ def test_stale_submission_recovers_after_restart_without_automatic_model_retry(a
         history = client.get(url).json()["items"]
         assert [item["role"] for item in history] == ["user", "assistant"]
         assert history[-1]["response"]["kind"] == "error"
-        assert send(client, conversation_id, "Retry as a new submission.").status_code == 200
+        assert send(client, conversation_id, "Save the interrupted preference.").status_code == 200
 
 
 def test_conversation_and_entry_ids_are_scoped(api_factory: Callable) -> None:
@@ -539,17 +542,17 @@ def test_topic_only_generation_persists_defaults_and_accepts_overrides_after_res
         assert provider.generate.await_count == 2
 
 
-def test_excessive_shorthand_count_clarifies_then_generates_without_losing_topic(api_factory: Callable) -> None:
+def test_explicit_excessive_count_clarifies_then_generates_without_losing_topic(api_factory: Callable) -> None:
     with api_factory() as (client, provider):
         conversation_id = create(client)
-        provider.generate.side_effect = [TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": 7}})]
-        first = send(client, conversation_id, "create rainy day 7")
+        provider.generate.side_effect = [TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": MAX_ENTRIES + 1}})]
+        first = send(client, conversation_id, f"create {MAX_ENTRIES + 1} drafts about rainy days")
         assert first.status_code == 200 and first.json()["kind"] == "clarification"
-        assert "between 1 and 6" in first.json()["assistant_message"]
+        assert f"between 1 and {MAX_ENTRIES}" in first.json()["assistant_message"]
         state = client.get(f"{BASE}/{conversation_id}").json()
         assert state["entries"] == []
         assert state["preferences"]["count"] is None
-        assert state["preferences"]["topic"] == "rainy day"
+        assert state["preferences"]["topic"] == f"{MAX_ENTRIES + 1} drafts about rainy days"
         provider.generate.assert_awaited_once()
         provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(count=1)), DraftBatch(entries=[{**CONTENT[0], "title": '[FICTIONAL] "Rainy Day" Garden Opens'}])]
         second = send(client, conversation_id, "one")
@@ -557,6 +560,132 @@ def test_excessive_shorthand_count_clarifies_then_generates_without_losing_topic
         assert len(second.json()["entries"]) == 1
         saved = client.get(f"{BASE}/{conversation_id}").json()
         assert saved["entries"] == second.json()["entries"]
-        assert saved["preferences"]["topic"] == "rainy day"
+        assert saved["preferences"]["topic"] == f"{MAX_ENTRIES + 1} drafts about rainy days"
         assert saved["pending"] is None
         assert provider.generate.await_count == 3
+
+
+def test_ten_selected_drafts_and_follow_up_survive_restart(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(topic="rainy day")), rainy_day_batch(10)]
+        response = send(client, conversation_id, "rainy day", generation_settings={"count": 10})
+        assert response.status_code == 200 and response.json()["kind"] == "generation"
+        assert len(response.json()["entries"]) == 10
+        detail_url = f"{BASE}/{conversation_id}"
+        before = client.get(detail_url).json()
+        assert before["entries"] == response.json()["entries"]
+        assert before["preferences"]["count"] == 10
+        assert provider.generate.await_count == 2
+
+    with api_factory() as (client, provider):
+        assert client.get(detail_url).json() == before
+        provider.generate.side_effect = [TurnPlan(action="generate"), DraftBatch(entries=rainy_day_batch(20).entries[10:])]
+        response = send(client, conversation_id, "Generate ten more.")
+        assert response.status_code == 200 and response.json()["kind"] == "generation"
+        assert len(response.json()["entries"]) == 10
+        after = client.get(detail_url).json()
+        assert len(after["entries"]) == 20
+        assert after["entries"][:10] == before["entries"]
+        assert len({entry["id"] for entry in after["entries"]}) == 20
+        assert after["pending"] is None
+        assert provider.generate.await_count == 2
+
+
+def test_selected_settings_are_persisted_and_part_of_submission_identity(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        url = f"{BASE}/{conversation_id}/messages"
+        body = {"instruction": "a rainy afternoon", "generation_settings": {"count": 1, "category": "news", "tone": "formal"}}
+        provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(topic="a rainy afternoon")), DraftBatch(entries=[{**CONTENT[0], "category": "news"}])]
+        key = str(uuid4())
+        first = client.post(url, json=body, headers={"Idempotency-Key": key})
+        assert first.status_code == 200 and first.json()["kind"] == "generation"
+        assert first.json()["entries"][0]["category"] == "news"
+        detail = client.get(f"{BASE}/{conversation_id}").json()
+        assert detail["preferences"]["count"] == 1
+        assert detail["preferences"]["tone"] == "formal"
+        assert detail["preferences"]["category"] == "news"
+        messages = client.get(url).json()["items"]
+        assert messages[0]["request"]["generation_settings"] == body["generation_settings"]
+        replay = client.post(url, json=body, headers={"Idempotency-Key": key})
+        assert replay.json() == first.json()
+        changed = {**body, "generation_settings": {"count": 2}}
+        conflict = client.post(url, json=changed, headers={"Idempotency-Key": key})
+        assert conflict.status_code == 409 and conflict.json()["error"]["code"] == "submission_conflict"
+        assert provider.generate.await_count == 2
+
+
+def test_absent_null_and_empty_settings_replay_the_same_submission(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        url = f"{BASE}/{conversation_id}/messages"
+        key = str(uuid4())
+        first = client.post(url, json={"instruction": "Save these preferences."}, headers={"Idempotency-Key": key})
+        for settings in [None, {}, {"count": None}]:
+            replay = client.post(url, json={"instruction": "Save these preferences.", "generation_settings": settings}, headers={"Idempotency-Key": key})
+            assert replay.status_code == 200 and replay.json() == first.json()
+        provider.generate.assert_awaited_once()
+
+
+def test_invalid_selected_settings_do_not_call_provider(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        response = send(client, create(client), "a rainy afternoon", generation_settings={"count": 20, "max_body_chars": 1200})
+        assert response.status_code == 422
+        provider.generate.assert_not_awaited()
+
+
+def test_news_topic_switch_generates_and_preserves_saved_drafts(api_factory: Callable) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [TurnPlan(action="generate"), rainy_day_batch(3)]
+        first = send(client, conversation_id, "create rainy day no:13", generation_settings={"count": 3})
+        assert first.status_code == 200 and first.json()["kind"] == "generation"
+        before = client.get(f"{BASE}/{conversation_id}").json()
+        provider.generate.side_effect = [TurnPlan(action="message"), DraftBatch(entries=[content_for(CASES[-1])])]
+        message = CASES[-1][0]
+        second = send(client, conversation_id, message, generation_settings={"count": 1})
+        assert second.status_code == 200 and second.json()["kind"] == "generation"
+        assert len(second.json()["entries"]) == 1
+        after = client.get(f"{BASE}/{conversation_id}").json()
+        assert after["entries"][:-1] == before["entries"]
+        assert after["preferences"]["topic"] == message and after["pending"] is None
+        messages = client.get(f"{BASE}/{conversation_id}/messages").json()["items"]
+        assert messages[-2]["content"] == message
+        assert messages[-1]["response"] == second.json()
+        assert provider.generate.await_count == 4
+
+
+@pytest.mark.parametrize("case", CASES[:6], ids=[case[0] for case in CASES[:6]])
+def test_mock_content_can_be_selected_reviewed_and_restored(api_factory: Callable, case: tuple[str, str, str, str]) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [TurnPlan(action="message"), DraftBatch(entries=[content_for(case)])]
+        generated = send(client, conversation_id, case[0], generation_settings={"category": case[1]}).json()
+        assert generated["kind"] == "generation" and len(generated["entries"]) == 1
+        entry = generated["entries"][0]
+        assert entry["body"] == case[3] and entry["category"] == case[1]
+        assert entry["is_synthetic"] is True
+        url = f"{BASE}/{conversation_id}/entries/{entry['id']}"
+        reviewed = client.patch(url, json={"status": "accepted", "expected_version": entry["version"]})
+        assert reviewed.status_code == 200 and reviewed.json()["status"] == "accepted"
+    with api_factory() as (client, provider):
+        restored = client.get(f"{BASE}/{conversation_id}").json()
+        assert restored["entries"] == [reviewed.json()]
+        provider.generate.assert_not_awaited()
+
+
+@pytest.mark.parametrize("category", ["update", "article", "blog"])
+def test_additional_content_types_survive_storage_and_revision(api_factory: Callable, category: str) -> None:
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        provider.generate.side_effect = [TurnPlan(action="generate"), DraftBatch(entries=[content_for(CASES[3], category)])]
+        generated = send(client, conversation_id, CASES[3][0], generation_settings={"category": category}).json()
+        assert generated["kind"] == "generation"
+        entry = generated["entries"][0]
+        provider.generate.side_effect = [TurnPlan(action="revise", length_change="shorter"), RevisionBatch(entries=[{"entry_id": entry["id"], **content_for(CASES[3], category), "body": "In a fictional ocean lab, an imagined AI maps coral gardens. This mock system suggests experiments for a simulated reef."}])]
+        revised = send(client, conversation_id, "Make the selected draft shorter.", revision_targets=[{"entry_id": entry["id"], "expected_version": 1}]).json()
+        assert revised["kind"] == "revision"
+        assert revised["entries"][0]["category"] == category and revised["entries"][0]["version"] == 2
+    with api_factory() as (client, provider):
+        assert client.get(f"{BASE}/{conversation_id}").json()["entries"] == revised["entries"]

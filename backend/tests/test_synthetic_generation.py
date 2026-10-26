@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from app.contracts import ChatResponse, DraftBatch, ErrorResponse, GenerationRequest, GenerationResponse, ReferenceCollection, ReferenceText, SampleHeadline, SourcePermission, URLReference
+from app.contracts import MAX_ENTRIES, ChatResponse, DraftBatch, ErrorResponse, GenerationRequest, GenerationResponse, ReferenceCollection, ReferenceText, SampleHeadline, SourcePermission, URLReference
 from app.gemini_provider import GeminiProvider, GeminiProviderError, ProviderFailure
 from app.generation_checks import has_suspect_overlap
 from app.generation_prompts import DEMONSTRATIONS, MAX_ANALYZED_CHARS, MAX_PROMPT_BYTES, MAX_PROMPT_CHARS, build_generation_prompt
@@ -136,7 +136,7 @@ def test_reference_instructions_do_not_enter_model_prompt_as_instructions() -> N
 
 
 @pytest.mark.parametrize("changes", [
-    {"count": 0}, {"count": 7}, {"count": True}, {"count": "2"}, {"tone": "official"}, {"category": "verified_reporting"},
+    {"count": 0}, {"count": MAX_ENTRIES + 1}, {"count": True}, {"count": "2"}, {"tone": "official"}, {"category": "verified_reporting"},
     {"language": "English"}, {"min_body_chars": 0}, {"max_body_chars": 6_001}, {"min_body_chars": 301, "max_body_chars": 300},
     {"count": 5, "max_body_chars": 3_000}, {"mode": "summarization"}, {"mode": "verification"}, {"topic": " "}, {"unknown": True},
 ])

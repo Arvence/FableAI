@@ -109,3 +109,29 @@ def test_unexpected_orchestrator_failure_is_sanitized_and_durable(repository: Co
     replay = asyncio.run(service.submit(conversation_id, key, request))
     assert isinstance(replay, SavedResponse) and replay == response
     orchestrator.handle_turn.assert_awaited_once()
+
+
+def test_late_generation_cannot_replace_a_newer_submission(repository: ConversationRepository) -> None:
+    from app.contracts import GeneratedEntry, GenerationResponse
+    from app.conversation_contracts import GenerationPreferences
+
+    conversation_id = repository.create().conversation_id
+    now = datetime.now(UTC)
+    repository._clock = lambda: now
+    old = repository.begin(conversation_id, uuid4(), "message", {"instruction": "An old rainy-day request."})
+    repository._clock = lambda: now + timedelta(seconds=PROCESSING_LEASE_SECONDS + 1)
+    new = repository.begin(conversation_id, uuid4(), "message", {"instruction": "A new forest-library request."})
+    entry = GeneratedEntry(id=uuid4(), version=1, title="[FICTIONAL] Forest Library Opens", body="In an imaginary forest, a library welcomes readers to shelves of wooden books.", category="announcement", language="en", tags=["fiction"], is_synthetic=True, status="draft")
+    new.snapshot.preferences = GenerationPreferences(topic="forest library", count=1)
+    new.snapshot.active_entries = [entry]
+    response = GenerationResponse(kind="generation", conversation_id=conversation_id, message_id=uuid4(), assistant_message="Created a forest-library draft.", entries=[entry.model_dump()])
+    repository.finish(new, response, snapshot=new.snapshot)
+    before = repository.get(conversation_id).model_dump_json()
+    history_before = repository.messages(conversation_id, 100, 0).model_dump_json()
+    old.snapshot.preferences = GenerationPreferences(topic="rainy day", count=3)
+    old.snapshot.active_entries = [entry.model_copy(update={"id": uuid4(), "title": "[FICTIONAL] An Old Rainy Draft"})]
+    late_response = response.model_copy(update={"message_id": uuid4(), "entries": old.snapshot.active_entries})
+    late = repository.finish(old, late_response, snapshot=old.snapshot)
+    assert late.response.kind == "error" and late.response.error.code == "processing_interrupted"
+    assert repository.get(conversation_id).model_dump_json() == before
+    assert repository.messages(conversation_id, 100, 0).model_dump_json() == history_before

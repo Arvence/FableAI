@@ -36,7 +36,13 @@ class PersistentConversationService:
                 raise RepositoryError("storage_failed", "Storage is unavailable. Retry with the same submission ID after storage recovers.") from None
 
     async def submit(self, conversation_id: UUID, submission_id: UUID, request: ChatTurnInput) -> SavedResponse:
-        claim = await run_in_threadpool(self._repository.begin, conversation_id, submission_id, "message", request.model_dump(mode="json"))
+        data = request.model_dump(mode="json")
+        settings = request.generation_settings.model_dump(exclude_none=True) if request.generation_settings is not None else {}
+        if settings:
+            data["generation_settings"] = settings
+        else:
+            data.pop("generation_settings")
+        claim = await run_in_threadpool(self._repository.begin, conversation_id, submission_id, "message", data)
         if isinstance(claim, SavedResponse):
             return claim
         try:

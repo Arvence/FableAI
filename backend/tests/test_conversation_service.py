@@ -6,11 +6,12 @@ from uuid import uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from app.contracts import ChatTurnRequest, DraftBatch, GeneratedEntry, ReferenceCollection, ReferenceText, RevisionTarget
+from app.contracts import MAX_ENTRIES, ChatMessage, ChatTurnRequest, DraftBatch, GeneratedEntry, ReferenceCollection, ReferenceText, RevisionTarget
 from app.conversation_contracts import ConversationResponse, ConversationSnapshot, ConversationTurnResult, GenerationPreferences, PendingTurn, TurnPlan
 from app.conversation_service import ConversationService
 from app.gemini_provider import GeminiProvider, GeminiProviderError, ProviderFailure
 from app.revision_generation import RevisionBatch
+from draft_samples import rainy_day_batch
 
 
 TEXTS = (
@@ -135,7 +136,7 @@ def test_missing_settings_default_then_explicit_follow_up_overrides_them() -> No
     service = ConversationService(provider)
     first = turn(service, None, "Generate one fictional news draft about craft events.", examples=[REFERENCE])
     assert first.response.kind == "generation"
-    assert first.snapshot.preferences.model_dump() == {"topic": "Fictional craft events", "count": 1, "category": "news", "tone": "neutral", "language": "en", "min_body_chars": 100, "max_body_chars": 300}
+    assert first.snapshot.preferences.model_dump() == {"topic": "one fictional news draft about craft events.", "count": 1, "category": "news", "tone": "neutral", "language": "en", "min_body_chars": 100, "max_body_chars": 300}
     assert first.snapshot.pending is None
     provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(tone="formal", min_body_chars=60, max_body_chars=500)), DraftBatch(entries=[content(1, category="news")])]
     second = turn(service, first.snapshot, "Another, formal, between 60 and 500 body characters.")
@@ -303,7 +304,7 @@ def test_planner_clarification_takes_precedence_over_explicit_count() -> None:
     provider.generate.assert_awaited_once()
 
 
-@pytest.mark.parametrize("count", [0, 7, 999])
+@pytest.mark.parametrize("count", [0, MAX_ENTRIES + 1, 999])
 def test_natural_language_count_outside_batch_limit_asks_before_drafting(count: int) -> None:
     state = snapshot()
     provider = provider_with(TurnPlan(action="generate"))
@@ -497,12 +498,12 @@ def test_prose_count_during_revision_does_not_switch_to_generation() -> None:
 @pytest.mark.parametrize(("instruction", "topic"), [
     ("rainy day", "rainy day"),
     ("a library on Mars", "a library on Mars"),
-    ("Please make something about a village where seasons change every hour.", "a village where seasons change every hour"),
+    ("Please make something about a village where seasons change every hour.", "Please make something about a village where seasons change every hour."),
     ("create Formula 1", "Formula 1"),
     ("create Apollo 11", "Apollo 11"),
     ("create 1984 inspired city", "1984 inspired city"),
     ("create one direction for a lost explorer", "one direction for a lost explorer"),
-    ("ya\u011fmurlu bir g\u00fcn", "a rainy day"),
+    ("ya\u011fmurlu bir g\u00fcn", "ya\u011fmurlu bir g\u00fcn"),
 ])
 def test_free_form_topics_generate_with_defaults_without_references(instruction: str, topic: str) -> None:
     provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic=topic)), batch(0))
@@ -518,7 +519,7 @@ def test_free_form_topics_generate_with_defaults_without_references(instruction:
     assert provider.generate.await_count == 2
 
 
-@pytest.mark.parametrize("instruction", ["create rainy day 6", "create six rainy day drafts"])
+@pytest.mark.parametrize("instruction", ["create 6 rainy day drafts", "create six rainy day drafts"])
 def test_six_drafts_and_sixth_entry_revision_need_no_references(instruction: str) -> None:
     provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="rainy day", count=6)), batch(0, 1, 2, 3, 4, 5))
     service = ConversationService(provider)
@@ -572,40 +573,43 @@ def test_unclear_input_still_clarifies_without_inventing_a_topic() -> None:
     provider.generate.assert_awaited_once()
 
 
-@pytest.mark.parametrize("model_count", [None, 1, 6, 7])
-@pytest.mark.parametrize("instruction", ["create rainy day 7", "rainy day seven", "}\ncreate rainy day 7"])
-def test_trailing_count_above_limit_clarifies_without_drafting_or_losing_topic(model_count: int | None, instruction: str) -> None:
+@pytest.mark.parametrize("model_count", [None, 1, MAX_ENTRIES, MAX_ENTRIES + 1])
+@pytest.mark.parametrize("instruction", [f"create {MAX_ENTRIES + 1} rainy day drafts", f"write {MAX_ENTRIES + 1} drafts about rainy days", f"}}\ncreate {MAX_ENTRIES + 1} rainy day drafts"])
+def test_explicit_count_above_limit_clarifies_without_drafting_or_losing_topic(model_count: int | None, instruction: str) -> None:
     plan = TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": model_count}})
     provider = provider_with(plan)
     state = snapshot(count=1, preferences=GenerationPreferences(**{**PREFERENCES, "count": 6}))
     before = state.model_dump_json()
     result = turn(ConversationService(provider), state, instruction)
     assert result.response.kind == "clarification"
-    assert "between 1 and 6" in result.response.assistant_message
-    assert result.snapshot.preferences.topic == "rainy day"
-    assert result.snapshot.preferences.count == 6
+    assert f"between 1 and {MAX_ENTRIES}" in result.response.assistant_message
+    assert "rainy day" in result.snapshot.preferences.topic
+    assert result.snapshot.preferences.topic in instruction
+    assert result.snapshot.preferences.count is None
     assert result.snapshot.active_entries == state.active_entries
     assert result.snapshot.pending.action == "generate"
     assert state.model_dump_json() == before
     provider.generate.assert_awaited_once()
 
 
-@pytest.mark.parametrize("count", [-1, 0, 7, 100])
-def test_interpreted_count_is_checked_before_merging_saved_preferences(count: int) -> None:
+@pytest.mark.parametrize("count", [-1, 0, MAX_ENTRIES + 1, 100])
+def test_unrequested_model_count_does_not_replace_application_defaults(count: int) -> None:
     plan = TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": count}})
-    provider = provider_with(plan)
+    provider = provider_with(plan, batch(0))
     result = turn(ConversationService(provider), None, "A collection about rainy days.")
-    assert result.response.kind == "clarification"
-    assert result.snapshot.preferences.count is None
-    assert result.snapshot.preferences.topic == "rainy day"
-    provider.generate.assert_awaited_once()
-
-
-def test_trailing_supported_count_overrides_model_omission() -> None:
-    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="rainy day")), batch(0, 1, 2, 3, 4, 5))
-    result = turn(ConversationService(provider), None, "create rainy day 6")
     assert result.response.kind == "generation"
-    assert len(result.response.entries) == 6
+    assert result.snapshot.preferences.count == 1
+    assert result.snapshot.preferences.topic == "A collection about rainy days."
+    assert provider.generate.await_count == 2
+
+
+@pytest.mark.parametrize("number", [6, 10, 2026])
+def test_bare_trailing_number_does_not_supply_a_draft_count(number: int) -> None:
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic=f"rainy day {number}")), batch(0))
+    result = turn(ConversationService(provider), None, f"create rainy day {number}")
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+    assert result.snapshot.preferences.topic == f"rainy day {number}"
 
 
 @pytest.mark.parametrize(("instruction", "topic"), [
@@ -615,21 +619,21 @@ def test_trailing_supported_count_overrides_model_omission() -> None:
     ("create Formula 1", "Formula 1"),
 ])
 def test_subject_numbers_are_not_counts_even_when_a_different_count_is_saved(instruction: str, topic: str) -> None:
-    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic=topic)), batch(0, 1))
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic=topic)), batch(0))
     state = snapshot(count=0)
     result = turn(ConversationService(provider), state, instruction)
     assert result.response.kind == "generation"
-    assert len(result.response.entries) == 2
+    assert len(result.response.entries) == 1
 
 
 def test_count_clarification_continues_with_same_topic_and_preserved_entries() -> None:
-    provider = provider_with(TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": 7}}))
+    provider = provider_with(TurnPlan.model_validate({"action": "generate", "preferences": {"topic": "rainy day", "count": MAX_ENTRIES + 1}}))
     service = ConversationService(provider)
-    first = turn(service, None, "create rainy day 7")
+    first = turn(service, None, f"create {MAX_ENTRIES + 1} rainy day drafts")
     provider.generate.side_effect = [TurnPlan(action="generate", preferences=GenerationPreferences(count=2)), batch(0, 1)]
     second = turn(service, first.snapshot, "two")
     assert second.response.kind == "generation" and len(second.response.entries) == 2
-    assert second.snapshot.preferences.topic == "rainy day"
+    assert second.snapshot.preferences.topic == first.snapshot.preferences.topic
     assert second.snapshot.pending is None
     assert provider.generate.await_count == 3
 
@@ -643,3 +647,208 @@ def test_revision_accepts_quoted_invented_name_without_changing_identity() -> No
     assert result.response.entries[0].id == entry.id
     assert result.response.entries[0].version == 2
     assert result.response.entries[0].title == '[FICTIONAL] "Rainy Day" Garden Opens'
+
+
+@pytest.mark.parametrize(("instruction", "count"), [
+    ("create 7 rainy day drafts", 7),
+    ("create 10 rainy day drafts", 10),
+    ("write ten drafts about rainy days", 10),
+    ("create ten rainy day drafts", 10),
+    (f"create {MAX_ENTRIES} rainy day drafts", MAX_ENTRIES),
+])
+def test_larger_counts_generate_exact_batches_despite_saved_six_draft_preference(instruction: str, count: int) -> None:
+    state = snapshot(count=0, preferences=GenerationPreferences(**{**PREFERENCES, "count": 6}))
+    state.messages = [ChatMessage(conversation_id=state.conversation_id, message_id=uuid4(), role="assistant", content="Choose between 1 and 6 per turn.")]
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="rainy day")), rainy_day_batch(count))
+    result = turn(ConversationService(provider), state, instruction)
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == count
+    assert len({entry.id for entry in result.response.entries}) == count
+    assert result.snapshot.preferences.count == count
+    assert result.snapshot.pending is None
+    assert provider.generate.await_count == 2
+    interpretation = provider.generate.call_args_list[0].args[0]
+    data = json.loads(interpretation.split("DATA_JSON:\n", 1)[1])
+    assert data["max_entries_per_turn"] == MAX_ENTRIES
+    assert "limits mentioned in older conversation messages may be outdated" in interpretation
+
+
+def test_ten_drafts_allow_targeted_revision_of_the_tenth_entry() -> None:
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="rainy day", count=10)), rainy_day_batch(10))
+    service = ConversationService(provider)
+    generated = turn(service, None, "create 10 rainy day drafts")
+    selected = generated.snapshot.active_entries[9]
+    provider.generate.side_effect = [TurnPlan(action="revise", length_change="shorter"), revision(selected)]
+    revised = turn(service, generated.snapshot, "Make the tenth entry shorter.")
+    assert revised.response.kind == "revision"
+    assert revised.response.entries[0].id == selected.id
+    assert revised.response.entries[0].version == 2
+    assert revised.snapshot.active_entries[:9] == generated.snapshot.active_entries[:9]
+    assert provider.generate.await_count == 4
+
+
+@pytest.mark.parametrize("budget", ["output", "conversation"])
+def test_larger_batches_still_respect_output_and_conversation_budgets(budget: str) -> None:
+    state = snapshot(count=0)
+    preferences = GenerationPreferences(topic="rainy day", count=10)
+    if budget == "output":
+        preferences.max_body_chars = 1300
+    else:
+        state.active_entries = [GeneratedEntry(id=uuid4(), version=1, **entry.model_dump()) for entry in rainy_day_batch(11).entries]
+    provider = provider_with(TurnPlan(action="generate", preferences=preferences))
+    result = turn(ConversationService(provider), state, "create 10 rainy day drafts")
+    assert result.response.kind == "clarification"
+    assert ("12000" if budget == "output" else "20 active drafts") in result.response.assistant_message
+    assert result.snapshot.active_entries == state.active_entries
+    provider.generate.assert_awaited_once()
+
+
+def test_selected_options_override_saved_preferences_and_reach_generation() -> None:
+    state = snapshot(count=0)
+    settings = {"count": 1, "tone": "formal", "category": "news", "language": "tr", "min_body_chars": 100, "max_body_chars": 300}
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="a rainy afternoon")), DraftBatch(entries=[content(category="news", language="tr")]))
+    result = turn(ConversationService(provider), state, "a rainy afternoon", generation_settings=settings)
+    assert result.response.kind == "generation"
+    assert result.snapshot.preferences.model_dump() == {"topic": "a rainy afternoon", **settings}
+    interpretation = json.loads(provider.generate.call_args_list[0].args[0].split("DATA_JSON:\n", 1)[1])
+    assert interpretation["selected_generation_settings"] == settings
+    constraints, _ = json.JSONDecoder().raw_decode(provider.generate.call_args.args[0].split("DATA_JSON:\n", 1)[1])
+    assert constraints["constraints"] == {"mode": "synthetic", "topic": "a rainy afternoon", **settings}
+
+
+def test_message_preferences_override_selected_options() -> None:
+    settings = {"count": 6, "tone": "playful", "category": "news", "language": "tr", "min_body_chars": 100, "max_body_chars": 300}
+    explicit = GenerationPreferences(topic="a rainy afternoon", count=1, tone="formal", category="announcement", language="en")
+    provider = provider_with(TurnPlan(action="generate", preferences=explicit), batch(0))
+    result = turn(ConversationService(provider), None, "Write one formal announcement in English about a rainy afternoon.", generation_settings=settings)
+    assert result.response.kind == "generation"
+    assert result.snapshot.preferences.count == 1
+    assert result.snapshot.preferences.tone == "formal"
+    assert result.snapshot.preferences.category == "announcement"
+    assert result.snapshot.preferences.language == "en"
+
+
+@pytest.mark.parametrize(("field", "body"), [
+    ("min_body_chars", TEXTS[0][1] + " " + TEXTS[1][1]),
+    ("max_body_chars", "In a fictional garden, brass flowers turn toward a painted sunrise."),
+])
+def test_explicit_length_bound_overrides_incompatible_selected_range(field: str, body: str) -> None:
+    settings = {"min_body_chars": 100, "max_body_chars": 300}
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="a fictional garden", **{field: len(body)})), DraftBatch(entries=[content(body=body)]))
+    result = turn(ConversationService(provider), None, f"A fictional garden, {field} {len(body)} characters.", generation_settings=settings)
+    assert result.response.kind == "generation"
+    assert result.snapshot.preferences.min_body_chars == len(body)
+    assert result.snapshot.preferences.max_body_chars == len(body)
+
+
+def test_selected_generation_options_do_not_change_revision_properties_or_action() -> None:
+    state = snapshot(1)
+    provider = provider_with(TurnPlan(action="revise", length_change="shorter"), revision(state.active_entries[0]))
+    result = turn(ConversationService(provider), state, "Make entry 1 shorter.", generation_settings={"count": 10, "category": "news", "language": "tr", "min_body_chars": 700, "max_body_chars": 1200})
+    assert result.response.kind == "revision"
+    assert len(result.snapshot.active_entries) == 1
+    assert result.response.entries[0].category == "announcement"
+    assert result.response.entries[0].language == "en"
+    assert result.response.entries[0].version == 2
+    assert len(result.response.entries[0].body) < len(state.active_entries[0].body)
+
+
+@pytest.mark.parametrize("action", ["message", "clarification"])
+def test_selected_options_do_not_force_generation_for_other_actions(action: str) -> None:
+    provider = provider_with(TurnPlan(action=action, question="Which entry should I revise?" if action == "clarification" else None))
+    result = turn(ConversationService(provider), None, "Save these samples." if action == "message" else "Revise that.", generation_settings={"count": 10, "category": "news"})
+    assert result.response.kind == action
+    assert result.snapshot.preferences.count is None
+    provider.generate.assert_awaited_once()
+
+
+@pytest.mark.parametrize("reason", [None, "missing_settings", "unsupported_requirement", "ambiguous_intent"])
+@pytest.mark.parametrize("model_count", [None, 11, 999])
+def test_reported_count_question_uses_menu_defaults_in_an_existing_chat(reason: str | None, model_count: int | None) -> None:
+    settings = {"count": 1, "tone": "neutral", "category": "news", "language": "en", "min_body_chars": 100, "max_body_chars": 300}
+    state = snapshot(count=0, preferences=GenerationPreferences(topic="rainy day", count=10), pending=PendingTurn(action="generate", instruction="create rainy day 6"))
+    state.messages = [ChatMessage(conversation_id=state.conversation_id, message_id=uuid4(), role="assistant", content="Please choose between 1 and 20 drafts per turn.")]
+    plan = TurnPlan.model_validate({"action": "clarification", "question": "Please choose between 1 and 20 drafts per turn.", "clarification_reason": reason, "preferences": {"count": model_count}})
+    provider = provider_with(plan, DraftBatch(entries=[content(category="news")]))
+    result = turn(ConversationService(provider), state, "create rainy day 11", generation_settings=settings)
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+    assert result.snapshot.preferences.model_dump() == {"topic": "rainy day 11", **settings}
+    assert result.snapshot.pending is None
+    assert provider.generate.await_count == 2
+    interpretation = json.loads(provider.generate.call_args_list[0].args[0].split("DATA_JSON:\n", 1)[1])
+    assert interpretation["effective_generation_settings"] == settings
+    prompt = provider.generate.call_args.args[0]
+    data, _ = json.JSONDecoder().raw_decode(prompt.split("DATA_JSON:\n", 1)[1])
+    assert data["constraints"]["count"] == 1
+    context = json.loads(prompt.split("CONVERSATION_JSON:\n", 1)[1])
+    assert context["pending"]["instruction"] == "create rainy day 11"
+    assert state.pending.instruction == "create rainy day 6"
+
+
+def test_older_client_without_settings_recovers_count_question_with_defaults() -> None:
+    provider = provider_with(TurnPlan(action="clarification", question="Please choose between 1 and 20 drafts per turn."), batch(0))
+    result = turn(ConversationService(provider), None, "create rainy day 11")
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+
+
+@pytest.mark.parametrize("instruction", ["rainy day 11", "a library on Mars"])
+def test_structured_missing_settings_reason_generates_with_a_known_subject(instruction: str) -> None:
+    provider = provider_with(TurnPlan(action="clarification", preferences=GenerationPreferences(topic=instruction), clarification_reason="missing_settings", question="Please specify tone, count, category, language, and body length."), batch(0))
+    result = turn(ConversationService(provider), None, instruction)
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+
+
+@pytest.mark.parametrize("reason", ["missing_topic", "revision_target", "unsupported_requirement", "ambiguous_intent"])
+def test_real_clarification_reasons_are_not_overridden_by_valid_menu_settings(reason: str) -> None:
+    provider = provider_with(TurnPlan(action="clarification", preferences=GenerationPreferences(topic="rainy day"), clarification_reason=reason, question="Please clarify the conflicting requirement."))
+    result = turn(ConversationService(provider), None, "Create rainy day.", generation_settings={"count": 1})
+    assert result.response.kind == "clarification"
+    provider.generate.assert_awaited_once()
+
+
+def test_settings_recovery_does_not_invent_a_missing_topic() -> None:
+    provider = provider_with(TurnPlan(action="clarification", clarification_reason="missing_settings", question="How many drafts should I generate?"))
+    result = turn(ConversationService(provider), None, "Generate some drafts.", generation_settings={"count": 1})
+    assert result.response.kind == "clarification"
+    provider.generate.assert_awaited_once()
+
+
+def test_recovery_still_validates_an_explicit_out_of_range_count() -> None:
+    provider = provider_with(TurnPlan(action="clarification", question="Please choose between 1 and 20 drafts per turn."))
+    result = turn(ConversationService(provider), None, "Create 25 drafts about rainy days.", generation_settings={"count": 1})
+    assert result.response.kind == "clarification"
+    assert "between 1 and 20" in result.response.assistant_message
+    provider.generate.assert_awaited_once()
+
+
+def test_model_cannot_replace_the_selected_count_with_a_topic_number() -> None:
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="rainy day 11", count=11)), batch(0))
+    result = turn(ConversationService(provider), None, "create rainy day 11", generation_settings={"count": 1})
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+
+
+@pytest.mark.parametrize("instruction", ["Write eleven drafts about rain.", "I want 11 drafts about rain."])
+def test_clear_prose_count_can_override_menu_count(instruction: str) -> None:
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="rain")), rainy_day_batch(11))
+    result = turn(ConversationService(provider), None, instruction, generation_settings={"count": 1})
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 11
+
+
+@pytest.mark.parametrize("instruction", ["Write one formal announcement in English about a rainy afternoon.", "I want one announcement about a rainy afternoon."])
+def test_clear_count_survives_an_interpreter_that_copies_the_full_message_as_topic(instruction: str) -> None:
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic=instruction, count=1)), batch(0))
+    result = turn(ConversationService(provider), None, instruction, generation_settings={"count": 2})
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 1
+
+
+def test_draft_noun_does_not_make_a_number_inside_the_subject_a_count() -> None:
+    provider = provider_with(TurnPlan(action="generate", preferences=GenerationPreferences(topic="Formula 1")), batch(0, 1))
+    result = turn(ConversationService(provider), None, "Create Formula 1 drafts.", generation_settings={"count": 2})
+    assert result.response.kind == "generation"
+    assert len(result.response.entries) == 2
