@@ -1,6 +1,6 @@
 # FableAI
 
-FableAI is a local chat application for creating explicitly fictional news and announcement drafts from meaningful prompts, optionally guided by authorized samples, headlines, and reference URLs. It returns validated JSON, remembers conversation context, and supports revisions to selected entries with stable IDs and version history.
+FableAI is a local chat application for creating explicitly fictional news, announcements, updates, articles, and blog drafts from meaningful prompts, optionally guided by authorized samples, headlines, and reference URLs. It returns validated JSON, remembers conversation context, and supports revisions to selected entries with stable IDs and version history.
 
 Generated content is for creative drafting, demos, and testing. Every draft carries a fictional title marker and a synthetic-content label. Accepting a draft records a local review decision; it does not publish anything or verify real events.
 
@@ -69,16 +69,22 @@ Google's Unpaid Services terms permit service improvement use of prompts and res
 
 Create a chat and write in **Your message**. Paste text and HTTPS links directly into that one box. Use the paperclip to attach authorized `.txt` samples; each file appears as a removable tile above the message. Attached samples are saved as references, while text in the message is treated as your instruction. Longer reference material belongs in an attached file.
 
-Start with a topic such as "rainy day", a phrase such as "a library on Mars", or a request such as "create rainy day 6". References are optional. Missing settings use one draft, neutral tone, English, announcement category, and 100-300 characters per body. Explicit settings and saved conversation preferences take precedence over defaults. Up to six drafts can be requested per turn. Larger counts, including shorthand such as "create rainy day 7", prompt a count clarification before drafting; the topic is retained for the answer. Clarification is reserved for unclear topics, ambiguous revisions, and unsupported or conflicting requirements.
+Write any meaningful topic or request in the message box; no preset prompt or required wording is needed. References and writing options are optional. The sliders button beside Send opens dropdowns for content type, tone, language, body length, and draft count. The menu supports News, Announcement, Update, Article, and Blog. It starts with one draft, neutral tone, English, News, and a target of 100-300 characters per body. Every message includes these concrete values even when the menu is closed. Reset restores these defaults; older Automatic selections migrate to them. Selections are retained per chat in the current browser session and apply to new content; clear instructions in the message can override them. A bare topic number cannot override the selected draft count. Revisions preserve the selected entries' existing properties unless the message requests a change.
 
-Requests and responses are grouped by turn, with divider lines between turns. User messages appear on the right and assistant responses on the left. Response JSON is always expanded; the copy icon on its right copies the exact JSON. The conversation scrolls within the chat workspace on desktop and mobile, and the message box stays below it. Saved references are reused in later turns.
+Body-length presets are approximate targets: Short (100-300 characters), Medium (300-700), and Long (700-1,200). Valid drafts outside the target are kept unchanged with a length notice. Explicit numerical character limits in the message remain strict. Hard per-entry, batch, and conversation limits always apply.
+
+The backend resolves unnecessary model questions about missing settings locally, without retrying interpretation. Old pending count questions do not replace a new creation request.
+
+A bare number in a topic, such as "create rainy day 10", does not automatically request ten drafts. To request a batch, select its count or write "Create 10 drafts about rainy days." A turn can generate up to 20 drafts within the output budget and remaining conversation capacity. Only unclear topics, ambiguous revisions, unsupported or conflicting requirements, and exhausted budgets need clarification. All output remains explicitly fictional; this app does not report or verify real news.
+
+Requests and responses are grouped by turn, with divider lines between turns. User messages appear on the right and assistant responses on the left. Response JSON is always expanded; the copy icon on its right copies the exact JSON. The conversation scrolls within the chat workspace on desktop and mobile, and the message box stays below it. Full conversation history and references remain saved. Standalone topics use the current message and its supplied references; explicit follow-ups can reuse relevant earlier material.
 
 For example:
 
 1. Attach a `.txt` file containing this self-authored sample: "In the fictional town of Bramblewick, glass flowers brighten a quiet workshop. Guests choose colored petals for a pretend garden display."
 2. Send: "Remember these preferences: English announcements about an imaginary paper-bird pavilion, neutral tone, one draft per request, and 100 to 240 characters per body."
 3. Send: "Generate one fictional draft." Clarify only genuinely ambiguous or unsupported requirements when prompted.
-4. Inspect the entries in the expanded **Response JSON**. Use the copy icon for the exact response. Entry acceptance and rejection are available through the HTTP API.
+4. Read the generated draft cards and use **Accept** or **Reject** to save review decisions. **Select for revision** targets particular drafts; **Clear selection** returns to ordinary generation. The expanded **Response JSON** and copy icon retain the exact response.
 5. Send: "Make entry 1 shorter." Its ID stays the same, its version increases, and its review status returns to `draft`. Unselected entries and their reviews remain unchanged.
 6. Reload or restart the backend and reopen the conversation to continue with its saved history.
 
@@ -145,7 +151,7 @@ Chat routes use `/api/v1/conversations`. Conversation and entry IDs are UUIDs.
 | `GET` | `/api/v1/conversations/{id}/entries/{entry_id}/versions` | Read content versions and their review status. |
 | `GET` | `/api/v1/conversations/{id}/entries/{entry_id}/reviews` | Read review decisions. |
 
-A message body requires `instruction` and may include `examples`, `headlines`, `source_urls`, `generation_count`, and `revision_targets`. Each revision target contains `entry_id` and `expected_version`. `import_urls` only records links and explains the separate authorization step; it never fetches a URL.
+A message body requires `instruction` and may include `examples`, `headlines`, `source_urls`, `generation_count`, `generation_settings`, and `revision_targets`. `generation_settings` optionally supplies `count`, `tone`, `category`, `language`, `min_body_chars`, `max_body_chars`, and `body_length_mode` (`target` or `strict`) for new content without forcing a generation action. The browser sends `target`; API requests that omit this mode retain strict length validation. Explicit numerical character limits in the instruction remain strict in either mode. Each revision target contains `entry_id` and `expected_version`. `import_urls` only records links and explains the separate authorization step; it never fetches a URL.
 
 Successful chat responses use `message`, `clarification`, `generation`, or `revision`. Message/clarification responses have empty `entries`; errors use `kind: "error"` with a safe code, message, and details. Entry review bodies contain `status` (`accepted` or `rejected`) and `expected_version`; they do not change content versions. See `/docs` for exact request schemas, import permission fields, and error statuses.
 
@@ -159,9 +165,9 @@ Use the sidebar to select saved chats and the **New chat** and **Delete chat** a
 
 SQLite is created automatically on first startup. Conversations, references, messages, entry versions, and review decisions survive restarts. Browser session storage retains the selected chat, unsent composer content, and uncertain submission IDs for that browser session. Local databases are unencrypted; protect the workspace and any backups. Back up the SQLite file with the backend stopped.
 
-Requests are limited to 512 KiB with a 10-second upload deadline. Instructions allow 4,000 characters. Each conversation allows 10 references total, including up to 5 URLs, with 30,000 reference characters in total. A batch allows 1–6 entries, at most 6,000 characters per body and 12,000 requested body characters overall. A conversation holds up to 20 active drafts and 24,000 active body characters; start another chat when that budget is full. Prompt context is bounded even though full history stays in SQLite.
+Requests are limited to 512 KiB with a 10-second upload deadline. Instructions allow 4,000 characters. Each conversation allows 10 references total, including up to 5 URLs, with 30,000 reference characters in total. A batch allows 1–20 entries, at most 6,000 characters per body and 12,000 requested body characters overall. A conversation holds up to 20 active drafts and 24,000 active body characters; start another chat when that budget is full. Prompt context is bounded even though full history stays in SQLite.
 
-Schema, count, length, category/language metadata, fictional labels, and basic lexical overlap are checked in code. Quoted invented names and ordinary apostrophes are allowed. Attributed speech quotations, source links/citations, and unsupported verification or endorsement labels are rejected with the affected field and a specific reason; rejected content is not returned and no automatic retry is made. Topic fit, actual body language, tone, factual attribution, semantic diversity, and paraphrased copying still require human review. Passing validation does not prove originality or model quality.
+Schema, count, hard size limits, category/language metadata, fictional labels, and basic lexical overlap are checked in code. Strict body-length requirements reject out-of-range output; target lengths produce a notice and preserve otherwise valid output. Quoted invented names and ordinary apostrophes are allowed. Attributed speech quotations, source links/citations, and unsupported verification or endorsement labels are rejected with the affected field and a specific reason; rejected content is not returned and no automatic retry is made. Topic fit, actual body language, tone, factual attribution, semantic diversity, and paraphrased copying still require human review. Passing validation does not prove originality or model quality.
 
 This is a local, single-user application. Conversation separation is not authentication. Public hosting, multi-user authorization, automated publishing, semantic verification, and unlimited memory are outside its scope.
 
