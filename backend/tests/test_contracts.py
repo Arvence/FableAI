@@ -379,7 +379,7 @@ def test_response_schema_exposes_four_discriminated_variants() -> None:
 
 @pytest.mark.parametrize("settings", [
     {"count": 0}, {"count": MAX_ENTRIES + 1}, {"count": True}, {"count": "2"},
-    {"tone": "sarcastic"}, {"category": "report"}, {"language": "English"},
+    {"body_length_mode": "unknown"}, {"body_length_mode": True}, {"tone": "sarcastic"}, {"category": "report"}, {"language": "English"},
     {"min_body_chars": 0}, {"max_body_chars": 6001},
     {"min_body_chars": 300, "max_body_chars": 100},
     {"count": 20, "max_body_chars": 1200}, {"topic": "unexpected"},

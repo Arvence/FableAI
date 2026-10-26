@@ -17,6 +17,10 @@ ACKNOWLEDGEMENT = re.compile(r"^\s*(?:(?:please\s+)?(?:save|remember|keep|use|se
 VERIFICATION_QUESTION = re.compile(r"\b(?:verif(?:y|ied|ication)|confirm(?:ed|ation)?|official|news feed|sources?|internet|research|real[- ]time|up[- ]to[- ]date)\b", re.IGNORECASE)
 
 
+def has_explicit_body_length(instruction: str) -> bool:
+    return bool(re.search(r"\b(?:min_body_chars|max_body_chars)\b|\d[\d,]*(?:\s*(?:-|\u2013|\u2014|to|and)\s*\d[\d,]*)?[\s-]*(?:characters?|chars?)\b|\b(?:characters?|chars?)\s*[:=]?\s*\d", instruction, re.IGNORECASE))
+
+
 def generation_fallback(request: ChatTurnRequest, plan: TurnPlan, subject: str | None) -> bool:
     if subject is None or request.revision_targets or CONTEXT_REFERENCE.search(request.instruction) or ACKNOWLEDGEMENT.search(request.instruction):
         return False

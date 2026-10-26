@@ -11,7 +11,7 @@ from app.generation_checks import UNSUPPORTED_TOPIC, GenerationRejected
 from app.reference_management import ReferenceInputs, ReferenceLink, prepare_references
 from app.revision_generation import RevisionGenerationService
 from app.synthetic_generation import SyntheticGenerationService
-from app.turn_context import current_subject, generation_fallback, refers_to_context, requested_category, scoped_snapshot
+from app.turn_context import current_subject, generation_fallback, has_explicit_body_length, refers_to_context, requested_category, scoped_snapshot
 
 
 NUMBER_WORDS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20}
@@ -184,7 +184,10 @@ class ConversationService:
         fresh_topic = _new_draft_topic(request.instruction)
         use_history = refers_to_context(request, snapshot, fresh_topic)
         interpretation = scoped_snapshot(request, snapshot, use_history)
-        result = await self._provider.generate(build_turn_prompt(request, interpretation), TurnPlan)
+        interpretation_request = request
+        if request.generation_settings is not None:
+            interpretation_request = request.model_copy(update={"generation_settings": request.generation_settings.model_copy(update={"body_length_mode": None})})
+        result = await self._provider.generate(build_turn_prompt(interpretation_request, interpretation), TurnPlan)
         if not isinstance(result, TurnPlan):
             raise GenerationRejected("generation_failed", "The provider did not return a validated turn interpretation.")
         plan = TurnPlan.model_validate(result.model_dump())
@@ -193,10 +196,14 @@ class ConversationService:
         recover_settings = _settings_clarification(plan) and not request.revision_targets and (fresh_topic is not None or plan.preferences.topic is not None)
         if recover_settings or generation_fallback(request, plan, current_subject(request, fresh_topic)):
             action = "generate"
-        selected = request.generation_settings.model_dump(exclude_none=True) if request.generation_settings is not None and action == "generate" else {}
+        selected = request.generation_settings.model_dump(exclude_none=True, exclude={"body_length_mode"}) if request.generation_settings is not None and action == "generate" else {}
         if recover_settings:
             selected = {**DEFAULT_GENERATION_PREFERENCES.model_dump(exclude_none=True), **selected}
         explicit = plan.preferences.model_dump(exclude_none=True)
+        if action == "generate" and selected and not has_explicit_body_length(request.instruction):
+            for field in ("min_body_chars", "max_body_chars"):
+                if field in selected:
+                    explicit.pop(field, None)
         if action == "generate":
             category = requested_category(request.instruction)
             if category is not None:
@@ -290,7 +297,13 @@ class ConversationService:
         if sum(len(entry.body) for entry in snapshot.active_entries) + preferences.count * preferences.max_body_chars > MAX_ACTIVE_BODY_CHARS:
             return _clarify(snapshot, request, "The active draft budget is full. Request shorter drafts or start a new conversation.")
         generation_request = _generation_request(snapshot, count=preferences.count)
-        response = await self._generation.generate(generation_request, references, context=context, existing_entries=snapshot.active_entries)
+        strict_body_length = not (
+            request.generation_settings is not None
+            and request.generation_settings.body_length_mode == "target"
+            and not has_explicit_body_length(snapshot.pending.instruction if snapshot.pending else request.instruction)
+            and not has_explicit_body_length(request.instruction)
+        )
+        response = await self._generation.generate(generation_request, references, context=context, existing_entries=snapshot.active_entries, strict_body_length=strict_body_length)
         if isinstance(response, ErrorResponse):
             return ConversationTurnResult(response=response, snapshot=None)
         snapshot.active_entries.extend(response.entries)

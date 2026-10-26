@@ -132,6 +132,7 @@ ContentCategory = Literal["news", "announcement", "update", "article", "blog"]
 
 
 class GenerationSettings(ContractModel):
+    body_length_mode: Literal["strict", "target"] | None = None
     count: int | None = Field(default=None, ge=1, le=MAX_ENTRIES)
     tone: Literal["neutral", "formal", "informative", "playful"] | None = None
     category: ContentCategory | None = None

@@ -1,7 +1,7 @@
 import re
 import unicodedata
 
-from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, DraftBatch, ErrorCode, ErrorDetail, ErrorInfo, GeneratedEntry, GenerationRequest
+from app.contracts import MAX_ACTIVE_BODY_CHARS, MAX_ACTIVE_ENTRIES, MAX_GENERATION_BODY_CHARS, DraftBatch, ErrorCode, ErrorDetail, ErrorInfo, GeneratedEntry, GenerationRequest
 
 
 FICTIONAL_PREFIX = "[FICTIONAL] "
@@ -80,16 +80,18 @@ def has_suspect_overlap(first: str, second: str) -> bool:
     return False
 
 
-def validate_generated_batch(batch: DraftBatch, request: GenerationRequest, source_texts: tuple[str, ...]) -> None:
+def validate_generated_batch(batch: DraftBatch, request: GenerationRequest, source_texts: tuple[str, ...], *, strict_body_length: bool = True) -> None:
     if len(batch.entries) != request.count:
         raise GenerationRejected("generation_failed", "The generated entry count does not match the request.", "entries")
+    if sum(len(entry.body) for entry in batch.entries) > MAX_GENERATION_BODY_CHARS:
+        raise GenerationRejected("generation_failed", "Generated bodies exceed the 12000-character batch limit.", "entries")
     previous_texts = []
     for index, entry in enumerate(batch.entries):
         field = f"entries.{index}"
         if not entry.title.startswith(FICTIONAL_PREFIX) or not normalized_words(entry.title):
             raise GenerationRejected("generation_failed", "Every title must begin with [FICTIONAL] and include a descriptive title.", field + ".title")
-        if not request.min_body_chars <= len(entry.body) <= request.max_body_chars:
-            raise GenerationRejected("generation_failed", "A generated body does not match the requested character range.", field + ".body")
+        if strict_body_length and not request.min_body_chars <= len(entry.body) <= request.max_body_chars:
+            raise GenerationRejected("generation_failed", f"A generated body has {len(entry.body)} characters, outside the requested character range of {request.min_body_chars}-{request.max_body_chars}.", field + ".body")
         if entry.category != request.category or entry.language.casefold() != request.language.casefold():
             raise GenerationRejected("generation_failed", "Generated category or language metadata does not match the request.", field)
         text = " ".join((entry.title, entry.body, *entry.tags))

@@ -689,3 +689,32 @@ def test_additional_content_types_survive_storage_and_revision(api_factory: Call
         assert revised["entries"][0]["category"] == category and revised["entries"][0]["version"] == 2
     with api_factory() as (client, provider):
         assert client.get(f"{BASE}/{conversation_id}").json()["entries"] == revised["entries"]
+
+
+def test_long_target_notice_and_original_body_survive_replay_review_and_restart(api_factory: Callable) -> None:
+    body_text = "In this fictional Satisfactory expansion, pioneers build factories over a glowing canyon. The mock update adds aerial logistics and new ways to coordinate a shared production line."
+    body = {"instruction": "Create recent new about Satisfactory game", "generation_settings": {"body_length_mode": "target", "category": "news", "min_body_chars": 700, "max_body_chars": 1200}}
+    key = str(uuid4())
+    with api_factory() as (client, provider):
+        conversation_id = create(client)
+        url = f"{BASE}/{conversation_id}/messages"
+        provider.generate.side_effect = [TurnPlan(action="generate"), DraftBatch(entries=[{**CONTENT[0], "title": "[FICTIONAL] Satisfactory Explores Aerial Factories", "body": body_text, "category": "news"}])]
+        first = client.post(url, json=body, headers={"Idempotency-Key": key})
+        assert first.status_code == 200 and first.json()["kind"] == "generation"
+        entry = first.json()["entries"][0]
+        assert entry["body"] == body_text
+        assert f"draft 1: {len(body_text)} characters" in first.json()["assistant_message"]
+        assert client.post(url, json=body, headers={"Idempotency-Key": key}).json() == first.json()
+        changed = {**body, "generation_settings": {**body["generation_settings"], "body_length_mode": "strict"}}
+        assert client.post(url, json=changed, headers={"Idempotency-Key": key}).status_code == 409
+        assert provider.generate.await_count == 2
+        reviewed = client.patch(f"{BASE}/{conversation_id}/entries/{entry['id']}", json={"status": "accepted", "expected_version": 1})
+        assert reviewed.status_code == 200
+    with api_factory() as (client, provider):
+        assert client.get(f"{BASE}/{conversation_id}").json()["entries"] == [reviewed.json()]
+        messages = client.get(url).json()["items"]
+        assert messages[0]["request"]["instruction"] == body["instruction"]
+        assert messages[0]["request"]["generation_settings"] == body["generation_settings"]
+        assert messages[1]["response"] == first.json()
+        assert client.post(url, json=body, headers={"Idempotency-Key": key}).json() == first.json()
+        provider.generate.assert_not_awaited()
