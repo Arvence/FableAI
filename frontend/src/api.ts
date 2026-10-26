@@ -30,6 +30,10 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     }
     throw new ApiError(`The request failed (HTTP ${response.status}).`);
   }
+  const submissionId = new Headers(options.headers).get('Idempotency-Key');
+  if (submissionId && response.headers.get('Idempotency-Key') !== submissionId) {
+    throw new ApiError('The response did not match this submission. Retry the saved request to recover its result.');
+  }
   return data as T;
 }
 
@@ -39,6 +43,7 @@ export function listConversations(offset = 0, signal?: AbortSignal) {
 
 export async function loadConversation(id: string, signal?: AbortSignal) {
   const detail = await request<Conversation>(`/${id}`, { signal });
+  if (detail.conversation_id !== id) throw new ApiError('The response belongs to a different conversation. Reload this chat.');
   const messages: Message[] = [];
   let after: number | null = 0;
   while (after !== null) {
@@ -49,12 +54,14 @@ export async function loadConversation(id: string, signal?: AbortSignal) {
   return { detail, messages };
 }
 
-export function submit(pending: PendingSubmission) {
-  return request<ChatResponse | ImportResponse>(`/${pending.conversationId}/${pending.operation}`, {
+export async function submit(pending: PendingSubmission) {
+  const result = await request<ChatResponse | ImportResponse>(`/${pending.conversationId}/${pending.operation}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending.key },
     body: JSON.stringify(pending.body),
   });
+  if (result.conversation_id !== pending.conversationId) throw new ApiError('The response belongs to a different conversation. Retry the saved request to recover its result.');
+  return result;
 }
 
 export function review(id: string, entry: Entry, status: 'accepted' | 'rejected') {

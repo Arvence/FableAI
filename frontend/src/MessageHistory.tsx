@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef } from 'react';
 import Markdown from 'react-markdown';
+import { DraftCards } from './DraftCards';
 import { JsonView } from './JsonView';
-import type { Message } from './types';
+import type { ChatInput, Entry, Message } from './types';
 
-export function MessageHistory({ messages, createdAt, loading }: { messages: Message[]; createdAt?: string; loading: boolean }) {
+export function MessageHistory({ messages, createdAt, loading, entries, disabled, targets, onTarget, onReview }: { messages: Message[]; createdAt?: string; loading: boolean; entries: Entry[]; disabled: boolean; targets: ChatInput['revision_targets']; onTarget: (entry: Entry) => void; onReview: (entry: Entry, status: 'accepted' | 'rejected') => Promise<void> }) {
   const history = useRef<HTMLElement>(null);
   const followLatest = useRef(true);
   const firstLoad = useRef(true);
@@ -45,6 +46,10 @@ export function MessageHistory({ messages, createdAt, loading }: { messages: Mes
           {message.request.headlines.map((text, index) => <p key={'headline-' + index}><strong>Headline: </strong>{text}</p>)}
           {message.request.source_urls.map((url, index) => <p className="url-text" key={'url-' + index}><strong>URL: </strong>{url}</p>)}
         </details>}
+        {message.response && (message.response.kind === 'generation' || message.response.kind === 'revision') && <DraftCards
+          entries={entries.filter(entry => message.response?.kind !== 'error' && message.response?.entries.some(saved => saved.id === entry.id && saved.version === entry.version))}
+          disabled={disabled} targets={targets} onTarget={onTarget} onReview={onReview}
+        />}
         {message.response && <JsonView value={message.response} />}
       </article>)}
       {!turn.some(message => message.role === 'assistant') && <p className="awaiting-response">No saved response yet.</p>}

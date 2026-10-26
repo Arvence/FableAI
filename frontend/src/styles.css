@@ -114,12 +114,22 @@ details[open] > summary { margin-bottom: 8px; }
 
 .composer-dock { flex-shrink: 0; padding: 12px var(--content-padding) max(24px, env(safe-area-inset-bottom)); overflow-y: hidden; scrollbar-gutter: stable both-edges; }
 .composer { width: 100%; max-width: var(--conversation-width); margin: 0 auto; padding: 8px; border: 1px solid var(--border); border-radius: 24px; background: var(--surface-raised); }
-.composer-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: center; gap: 10px; }
+.composer-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px 34px; align-items: center; gap: 10px; }
 .composer-row textarea { display: block; min-width: 0; width: 100%; height: 26px; min-height: 26px; max-height: 26px; padding: 1px 0; border: 0; background: transparent; line-height: 24px; resize: none; }
 .composer:has(textarea:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .composer textarea:focus-visible { outline: none; }
 .icon-button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; background: transparent; }
 .composer .icon-button { border: 0; border-radius: 50%; }
+.options-button { position: relative; }
+.options-button[aria-expanded="true"] { background: var(--surface); color: var(--accent); }
+.options-indicator { position: absolute; right: 5px; top: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.generation-options { margin: 8px 6px 2px; padding: 12px 4px 4px; border-top: 1px solid var(--border); }
+.generation-options-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 12px; }
+.generation-options .options-reset { border: 0; padding: 2px 5px; background: transparent; color: var(--muted); font-size: 11px; }
+.generation-options-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.generation-options label { display: flex; flex-direction: column; gap: 5px; min-width: 0; color: var(--muted); font-size: 11px; }
+.generation-options select { width: 100%; min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 12px; }
+.generation-options p { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .composer .send-button { background: var(--accent); color: var(--on-accent); }
 .composer .send-button:hover:not(:disabled) { background: var(--accent-hover); }
 .composer .error-text { margin: 8px 10px 4px; font-size: 12px; }
@@ -166,6 +176,16 @@ details[open] > summary { margin-bottom: 8px; }
   .empty-chat h2, .welcome h2 { font-size: 20px; }
   .composer-dock { padding-top: 10px; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
   .composer-row { gap: 6px; }
+  .generation-options-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .composer-row textarea { font-size: 16px; }
   .dialog-actions button { min-height: 38px; }
 }
+
+.drafts { margin: 16px 0; }
+.draft-card { padding: 16px 0; overflow-wrap: anywhere; }
+.draft-card + .draft-card { border-top: 1px solid var(--border-subtle); }
+.draft-card h3 { margin: 10px 0; font-size: 15px; }
+.draft-meta, .draft-actions, .revision-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.draft-meta { justify-content: space-between; color: var(--muted); font-size: 11px; }
+.draft-actions button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.revision-selection { padding: 4px 8px 12px; color: var(--muted); font-size: 12px; }

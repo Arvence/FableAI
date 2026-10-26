@@ -19,6 +19,7 @@ from app.gemini_provider import GeminiProvider, GeminiProviderError, ProviderFai
 from app.main import create_app
 from app.reference_import import ReferenceImporter
 from app.revision_generation import RevisionBatch
+from fictional_samples import CASES, content_for
 
 
 CONTENTS = [
@@ -30,6 +31,8 @@ CONTENTS = [
 async def generate(prompt: str, schema: type) -> object:
     if schema is TurnPlan:
         instruction = json.loads(prompt.split("DATA_JSON:\n", 1)[1])["conversation"]["current_instruction"].lower()
+        if instruction == "create rainy day 11":
+            return TurnPlan(action="clarification", question="Please choose between 1 and 20 drafts per turn.")
         if "quota" in instruction:
             raise GeminiProviderError(ProviderFailure.RATE_LIMITED)
         if "invalid response" in instruction:
@@ -38,13 +41,28 @@ async def generate(prompt: str, schema: type) -> object:
             await asyncio.sleep(1)
         if "shorter" in instruction:
             return TurnPlan(action="revise", length_change="shorter")
-        if "generate" in instruction:
-            return TurnPlan(action="generate")
+        if "generate" in instruction or "rainy" in instruction or "library on mars" in instruction:
+            preferences = {"topic": instruction[:200]} if "rainy" in instruction or "library on mars" in instruction else {}
+            if instruction.startswith("write one "):
+                preferences["count"] = 1
+            if "formal" in instruction:
+                preferences["tone"] = "formal"
+            if "announcement" in instruction:
+                preferences["category"] = "announcement"
+            if "english" in instruction:
+                preferences["language"] = "en"
+            return TurnPlan(action="generate", preferences=GenerationPreferences(**preferences))
         if "remember" in instruction:
             return TurnPlan(action="message", preferences=GenerationPreferences(topic="An imaginary harbor festival", count=2, tone="neutral", category="announcement", language="en", min_body_chars=60, max_body_chars=300))
         return TurnPlan(action="message")
     if schema is DraftBatch:
-        return DraftBatch.model_validate({"entries": CONTENTS})
+        data, _ = json.JSONDecoder().raw_decode(prompt.split("DATA_JSON:\n", 1)[1])
+        constraints = data["constraints"]
+        assert constraints["count"] <= len(CONTENTS), "Add distinct fixtures before testing larger browser batches."
+        case = next((case for case in CASES if case[0].lower() == constraints["topic"].lower()), None)
+        contents = [content_for(case)] if case else CONTENTS
+        entries = [{**entry, "category": constraints["category"], "language": constraints["language"]} for entry in contents[:constraints["count"]]]
+        return DraftBatch.model_validate({"entries": entries})
     if schema is RevisionBatch:
         data, _ = json.JSONDecoder().raw_decode(prompt.split("REVISION_JSON:\n", 1)[1])
         return RevisionBatch.model_validate({"entries": [{"entry_id": target["entry_id"], **target["original"], "body": "In an imaginary orchard, painted clocks hang from wooden branches. Visitors follow a short design trail."} for target in data["targets"]]})

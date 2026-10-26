@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, listConversations, loadConversation, request, submit } from './api';
+import { ApiError, listConversations, loadConversation, request, review, submit } from './api';
 import { Composer } from './Composer';
 import { JsonView } from './JsonView';
 import { MessageHistory } from './MessageHistory';
 import { readSession, writeSession } from './session';
-import type { ChatInput, Conversation, ConversationSummary, Message, PendingSubmission } from './types';
+import type { ChatInput, Conversation, ConversationSummary, Entry, Message, PendingSubmission } from './types';
 
 const failure = (error: unknown) => error instanceof ApiError ? error : new ApiError('The action could not be completed. Reload the page and try again.');
 
@@ -20,6 +20,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState<PendingSubmission | null>(null);
   const [reset, setReset] = useState(0);
+  const [targets, setTargets] = useState<ChatInput['revision_targets']>([]);
   const deleteDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -40,11 +41,13 @@ export function App() {
     writeSession('selected', selected);
     setConversation(null);
     setMessages([]);
+    setTargets([]);
     setNotice('');
     setError(null);
     setPending(readSession(`pending:${selected}`, null));
     setLoading(true);
     loadConversation(selected, controller.signal).then(state => {
+      if (controller.signal.aborted) return;
       setConversation(state.detail);
       setMessages(state.messages);
       setLoading(false);
@@ -120,6 +123,7 @@ export function App() {
       }
       deleted = true;
       writeSession(`draft:${id}`, null);
+      writeSession(`settings:${id}`, null);
       writeSession(`pending:${id}`, null);
       writeSession('selected', null);
       setSelected('');
@@ -169,6 +173,7 @@ export function App() {
       if (result.kind === 'reference_import') {
         setNotice('Reference imported and saved.');
       } else {
+        if (result.kind === 'generation' || result.kind === 'revision') setTargets([]);
         setReset(value => value + 1);
         writeSession(`draft:${selected}`, null);
         setNotice('Response saved.');
@@ -190,6 +195,27 @@ export function App() {
 
   async function send(body: ChatInput) {
     await perform({ conversationId: selected, key: crypto.randomUUID(), operation: 'messages', body });
+  }
+
+  function selectDraft(entry: Entry) {
+    setTargets(current => current.some(target => target.entry_id === entry.id)
+      ? current.filter(target => target.entry_id !== entry.id)
+      : [...current, { entry_id: entry.id, expected_version: entry.version }]);
+    document.getElementById('instruction')?.focus({ preventScroll: true });
+  }
+
+  async function reviewDraft(entry: Entry, status: 'accepted' | 'rejected') {
+    setBusy('Saving review...');
+    setError(null);
+    try {
+      await review(selected, entry, status);
+      await refresh();
+      setNotice('Review saved.');
+    } catch (reason) {
+      setError(failure(reason));
+    } finally {
+      setBusy('');
+    }
   }
 
   const blocked = !!busy || loading;
@@ -241,8 +267,8 @@ export function App() {
         {conversation?.processing && !busy && <p role="status">A saved request is still processing. Its status is checked automatically. Interrupted requests can take up to three minutes to become recoverable.</p>}
       </div>
       {selected ? <>
-        <MessageHistory key={selected} messages={messages} createdAt={conversation?.created_at} loading={loading} />
-        <div className="composer-dock"><Composer key={selected} conversationId={selected} disabled={mutationBlocked} reset={reset} onSend={send} /></div>
+        <MessageHistory key={selected} messages={messages} createdAt={conversation?.created_at} loading={loading} entries={conversation?.entries ?? []} disabled={mutationBlocked} targets={targets} onTarget={selectDraft} onReview={reviewDraft} />
+        <div className="composer-dock"><Composer key={selected} conversationId={selected} disabled={mutationBlocked} reset={reset} targets={targets} onClearTargets={() => setTargets([])} onSend={send} /></div>
       </> : !loading && <section className="welcome"><h2>Start a conversation</h2><button className="primary" type="button" onClick={newChat} disabled={blocked}>Create your first chat</button></section>}
     </main>
   </div>;

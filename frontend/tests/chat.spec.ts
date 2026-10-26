@@ -512,3 +512,258 @@ test('chat history scrolls and paginates independently from the conversation', a
   expect(new Set(ids).size).toBe(ids.length);
   await expect(page.locator('.chat-link[aria-current="page"]')).toHaveAttribute('data-conversation-id', id);
 });
+
+
+test('free-form topics and trailing numbers generate without a settings questionnaire', async ({ page }) => {
+  await expect(page.getByLabel('Your message')).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Writing options', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  const response = await send(page, 'create rainy day 11');
+  expect(response.request().postDataJSON().generation_settings).toEqual({ body_length_mode: 'target', count: 1, tone: 'neutral', category: 'news', language: 'en', min_body_chars: 100, max_body_chars: 300 });
+  const generated = await response.json();
+  expect(generated.kind).toBe('generation');
+  expect(generated.entries).toHaveLength(1);
+  const id = await selectedChatId(page);
+  const saved = await (await page.request.get(base + '/' + id)).json();
+  expect(saved.preferences.topic).toBe('rainy day 11');
+  expect(generated.entries[0].category).toBe('news');
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await expect(page.getByLabel('Your message')).toBeEnabled();
+  const next = await (await send(page, 'a library on Mars')).json();
+  expect(next.kind).toBe('generation');
+  expect(next.entries).toHaveLength(1);
+});
+
+test('optional writing controls reach generation, survive reload, and preserve revisions', async ({ page }, testInfo) => {
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Content type', exact: true }).selectOption('news');
+  await page.getByRole('combobox', { name: 'Tone', exact: true }).selectOption('formal');
+  await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('en');
+  await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('300');
+  await page.getByRole('combobox', { name: 'Drafts', exact: true }).selectOption('2');
+  await expect(page.getByLabel('Your message')).toHaveValue('');
+  const response = await send(page, 'rainy afternoons');
+  expect(response.request().postDataJSON().generation_settings).toEqual({ body_length_mode: 'target', count: 2, tone: 'formal', category: 'news', language: 'en', min_body_chars: 100, max_body_chars: 300 });
+  const generated = await response.json();
+  expect(generated.kind).toBe('generation');
+  expect(generated.entries).toHaveLength(2);
+  expect(generated.entries.every((entry: { category: string }) => entry.category === 'news')).toBe(true);
+  await expect(page.getByLabel('Your message')).toHaveValue('');
+  const revised = await (await send(page, 'Make entry 1 shorter.')).json();
+  expect(revised.kind).toBe('revision');
+  expect(revised.entries).toHaveLength(1);
+  expect(revised.entries[0].id).toBe(generated.entries[0].id);
+  expect(revised.entries[0].version).toBe(2);
+  expect(revised.entries[0].category).toBe('news');
+  const id = await selectedChatId(page);
+  await page.reload();
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('2');
+  await expect(page.getByRole('combobox', { name: 'Content type', exact: true })).toHaveValue('news');
+  await page.screenshot({ path: testInfo.outputPath('writing-options-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toBeInViewport();
+  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('writing-options-mobile.png'), fullPage: true });
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await expect(page.getByLabel('Your message')).toBeEnabled();
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('1');
+  await page.locator('.chat-link[data-conversation-id="' + id + '"]').click();
+  await expect(page.getByLabel('Your message')).toBeEnabled();
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('2');
+});
+
+test('explicit message preferences override optional writing controls', async ({ page }) => {
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Drafts', exact: true }).selectOption('2');
+  await page.getByRole('combobox', { name: 'Tone', exact: true }).selectOption('playful');
+  await page.getByRole('combobox', { name: 'Content type', exact: true }).selectOption('news');
+  await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('tr');
+  const response = await (await send(page, 'Write one formal announcement in English about a rainy afternoon.')).json();
+  expect(response.kind).toBe('generation');
+  expect(response.entries).toHaveLength(1);
+  expect(response.entries[0].category).toBe('announcement');
+  expect(response.entries[0].language).toBe('en');
+  const saved = await (await page.request.get(base + '/' + await selectedChatId(page))).json();
+  expect(saved.preferences.tone).toBe('formal');
+});
+
+test('writing controls prevent incompatible batch sizes and reset to visible defaults', async ({ page }) => {
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('1200');
+  const count = page.getByRole('combobox', { name: 'Drafts', exact: true });
+  await expect(count.locator('option[value="10"]')).toHaveJSProperty('disabled', false);
+  await expect(count.locator('option[value="11"]')).toHaveJSProperty('disabled', true);
+  await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('300');
+  await count.selectOption('20');
+  await expect(page.getByRole('combobox', { name: 'Body length', exact: true }).locator('option[value="700"]')).toHaveJSProperty('disabled', true);
+  await expect(page.getByRole('combobox', { name: 'Body length', exact: true }).locator('option[value="1200"]')).toHaveJSProperty('disabled', true);
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(count).toHaveValue('1');
+  await expect(page.getByRole('combobox', { name: 'Body length', exact: true })).toHaveValue('300');
+  await page.reload();
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await expect(count).toHaveValue('1');
+});
+
+
+test('old automatic or partial browser settings become visible concrete defaults', async ({ page }) => {
+  const id = await selectedChatId(page);
+  await page.evaluate(id => sessionStorage.setItem('fableai:settings:' + id, JSON.stringify({ tone: 'formal' })), id);
+  await page.reload();
+  await expect(page.getByLabel('Your message')).toBeEnabled();
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('1');
+  await expect(page.getByRole('combobox', { name: 'Tone', exact: true })).toHaveValue('formal');
+  await expect(page.getByRole('combobox', { name: 'Content type', exact: true })).toHaveValue('news');
+  await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toHaveValue('en');
+  await expect(page.getByRole('combobox', { name: 'Body length', exact: true })).toHaveValue('300');
+  const response = await send(page, 'create rainy day 11');
+  const result = await response.json();
+  expect(result.kind).toBe('generation');
+  expect(result.entries).toHaveLength(1);
+  expect(response.request().postDataJSON().generation_settings).toEqual({ body_length_mode: 'target', count: 1, tone: 'formal', category: 'news', language: 'en', min_body_chars: 100, max_body_chars: 300 });
+});
+
+
+test('switching to a news topic creates a new fictional draft and preserves history', async ({ page }) => {
+  const first = await (await send(page, 'create rainy day 11')).json();
+  expect(first.kind).toBe('generation');
+  const response = await (await send(page, 'World of Warcraft Forever recent news')).json();
+  expect(response.kind).toBe('generation');
+  expect(response.entries).toHaveLength(1);
+  expect(response.entries[0].body).toContain('World of Warcraft');
+  const id = await selectedChatId(page);
+  const saved = await (await page.request.get(base + '/' + id)).json();
+  expect(saved.entries.slice(0, -1)).toEqual(first.entries);
+  expect(saved.preferences.topic).toBe('World of Warcraft Forever recent news');
+  await page.reload();
+  const latest = page.getByRole('article', { name: 'FableAI message', exact: true }).last();
+  await expect(latest.locator('.draft-card')).toContainText('World of Warcraft');
+  await expect(latest.getByRole('button', { name: 'Select for revision' })).toBeEnabled();
+});
+
+for (const [topic, category] of [
+  ['FIFA 27 news', 'news'],
+  ['GTA 7 announcement', 'announcement'],
+  ['Apple announces iPhone 20', 'announcement'],
+  ['New AI technology discovered', 'news'],
+  ['Announce our new website', 'announcement'],
+  ['Fantasy kingdom discovers dragons', 'news'],
+]) {
+  test('ordinary topic generates selectable fictional content: ' + topic, async ({ page }) => {
+    const generated = await (await send(page, topic)).json();
+    expect(generated.kind).toBe('generation');
+    expect(generated.entries).toHaveLength(1);
+    expect(generated.entries[0].category).toBe(category);
+    expect(generated.entries[0].is_synthetic).toBe(true);
+    const card = page.locator('.draft-card').last();
+    await expect(card).toContainText(generated.entries[0].title);
+    await expect(card).toContainText(generated.entries[0].body);
+    await expect(card).toContainText('Fictional / Mock');
+    await card.getByRole('button', { name: 'Select for revision' }).click();
+    await expect(card.getByRole('button', { name: 'Select for revision' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('status').filter({ hasText: '1 draft selected for revision' })).toBeVisible();
+    await page.getByRole('button', { name: 'Clear selection' }).click();
+    const review = page.waitForResponse(response => response.request().method() === 'PATCH');
+    await card.getByRole('button', { name: 'Accept', exact: true }).click();
+    expect((await review).ok()).toBe(true);
+    await expect(card.getByRole('button', { name: 'Accept', exact: true })).toBeDisabled();
+    await page.reload();
+    await expect(page.locator('.draft-card').last()).toContainText('accepted');
+  });
+}
+
+for (const category of ['update', 'article', 'blog']) {
+  test('selected ' + category + ' content survives reload and targeted revision', async ({ page }) => {
+    await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Content type', exact: true }).selectOption(category);
+    const generated = await (await send(page, 'New AI technology discovered')).json();
+    expect(generated.kind).toBe('generation');
+    expect(generated.entries[0].category).toBe(category);
+    await page.reload();
+    await expect(page.locator('.draft-card').last()).toContainText(category);
+    await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Content type', exact: true })).toHaveValue(category);
+    await page.getByRole('button', { name: 'Select for revision' }).click();
+    const result = await send(page, 'Make the selected draft shorter.');
+    expect(result.request().postDataJSON().revision_targets).toEqual([{ entry_id: generated.entries[0].id, expected_version: 1 }]);
+    const revised = await result.json();
+    expect(revised.kind).toBe('revision');
+    expect(revised.entries[0].category).toBe(category);
+    expect(revised.entries[0].id).toBe(generated.entries[0].id);
+    expect(revised.entries[0].version).toBe(2);
+    await expect(page.locator('.draft-card')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Clear selection' })).toHaveCount(0);
+  });
+}
+
+for (const mismatch of ['submission', 'conversation']) {
+  test('a mismatched ' + mismatch + ' response preserves the current request for safe recovery', async ({ page }) => {
+    let intercepted = false;
+    let key = '';
+    await page.route('**/api/v1/conversations/*/messages', async route => {
+      if (route.request().method() !== 'POST' || intercepted) return route.continue();
+      intercepted = true;
+      key = route.request().headers()['idempotency-key'];
+      const response = await route.fetch();
+      const data = await response.json();
+      if (mismatch === 'submission') {
+        await route.fulfill({ response, headers: { ...response.headers(), 'Idempotency-Key': '00000000-0000-4000-8000-000000000099' } });
+      } else {
+        await route.fulfill({ response, json: { ...data, conversation_id: '00000000-0000-4000-8000-000000000099' } });
+      }
+    });
+    await page.getByLabel('Your message').fill('Save this current preference.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText(mismatch === 'submission' ? 'did not match this submission' : 'different conversation');
+    await expect(page.getByLabel('Your message')).toHaveValue('Save this current preference.');
+    const id = await selectedChatId(page);
+    const pending = await page.evaluate(id => JSON.parse(sessionStorage.getItem('fableai:pending:' + id)!), id);
+    expect(pending.key).toBe(key);
+    const calls = (await (await page.request.get('/api/v1/test-state')).json()).provider_calls;
+    const replay = page.waitForResponse(response => response.url().endsWith('/messages') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Retry same submission', exact: true }).click();
+    const recovered = await replay;
+    expect(recovered.request().headers()['idempotency-key']).toBe(key);
+    await expect(page.getByLabel('Your message')).toHaveValue('');
+    await expect(page.getByLabel('Your message')).toBeEnabled();
+    expect((await (await page.request.get('/api/v1/test-state')).json()).provider_calls).toBe(calls);
+  });
+}
+
+
+test('Long is an approximate target and keeps an off-length Satisfactory draft with its notice', async ({ page }) => {
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  const length = page.getByRole('combobox', { name: 'Body length', exact: true });
+  await length.selectOption('1200');
+  await expect(length.locator('option:checked')).toHaveText('Long (~700-1,200 chars)');
+  const response = await send(page, 'Create recent new about Satisfactory game');
+  expect(response.request().postDataJSON().generation_settings).toMatchObject({ body_length_mode: 'target', min_body_chars: 700, max_body_chars: 1200 });
+  const result = await response.json();
+  expect(result.kind).toBe('generation');
+  expect(result.entries).toHaveLength(1);
+  expect(result.entries[0].body).toContain('Satisfactory');
+  expect(result.entries[0].body.length).toBeLessThan(700);
+  expect(result.assistant_message).toContain('target 700-1200 characters');
+  expect(result.assistant_message).toContain('draft 1: ' + result.entries[0].body.length + ' characters');
+  await expect(page.locator('.draft-card')).toContainText(result.entries[0].body);
+  await expect(page.getByRole('button', { name: 'Select for revision' })).toBeEnabled();
+  await page.reload();
+  await expect(page.getByRole('article', { name: 'FableAI message', exact: true }).last()).toContainText('Length notice:');
+  await expect(page.locator('.draft-card')).toContainText(result.entries[0].body);
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await expect(length).toHaveValue('1200');
+});
+
+test('explicit character limits stay strict even when the length menu is approximate', async ({ page }) => {
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('1200');
+  const result = await (await send(page, 'Create recent new about Satisfactory game, between 700 and 1200 characters.')).json();
+  expect(result.kind).toBe('error');
+  expect(result.error.message).toContain('requested character range of 700-1200');
+  await expect(page.locator('.draft-card')).toHaveCount(0);
+});

@@ -5,12 +5,14 @@ export interface ApiErrorResponse {
   error: { code: string; message: string; details: { field: string; message: string }[] };
 }
 
+export type ContentCategory = 'news' | 'announcement' | 'update' | 'article' | 'blog';
+
 export interface Entry {
   id: string;
   version: number;
   title: string;
   body: string;
-  category: 'news' | 'announcement';
+  category: ContentCategory;
   tags: string[];
   language: string;
   is_synthetic: true;
@@ -73,12 +75,23 @@ export interface Message {
   response: ChatResponse | null;
 }
 
+export interface GenerationSettings {
+  body_length_mode?: 'strict' | 'target';
+  count?: number;
+  tone?: 'neutral' | 'formal' | 'informative' | 'playful';
+  category?: ContentCategory;
+  language?: string;
+  min_body_chars?: number;
+  max_body_chars?: number;
+}
+
 export interface ChatInput {
   instruction: string;
   examples: string[];
   headlines: string[];
   source_urls: string[];
   revision_targets: { entry_id: string; expected_version: number }[];
+  generation_settings?: GenerationSettings;
 }
 
 export interface ImportInput {

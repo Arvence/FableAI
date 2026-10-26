@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react';
 import { readSession, writeSession } from './session';
+import { defaultSettings, GenerationOptions, restoreSettings } from './GenerationOptions';
 import type { ChatInput } from './types';
 
 interface Attachment {
@@ -44,8 +45,10 @@ function referenceLinks(text: string): string[] {
   return [...new Set(links)];
 }
 
-export function Composer({ conversationId, disabled, reset, onSend }: { conversationId: string; disabled: boolean; reset: number; onSend: (input: ChatInput) => Promise<void> }) {
+export function Composer({ conversationId, disabled, reset, targets, onClearTargets, onSend }: { conversationId: string; disabled: boolean; reset: number; targets: ChatInput['revision_targets']; onClearTargets: () => void; onSend: (input: ChatInput) => Promise<void> }) {
   const [draft, setDraft] = useState(() => restoreDraft(conversationId));
+  const [settings, setSettings] = useState(() => restoreSettings(conversationId));
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [error, setError] = useState('');
   const [reading, setReading] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +59,10 @@ export function Composer({ conversationId, disabled, reset, onSend }: { conversa
   useEffect(() => {
     writeSession('draft:' + conversationId, draft);
   }, [conversationId, draft]);
+
+  useEffect(() => {
+    writeSession('settings:' + conversationId, settings);
+  }, [conversationId, settings]);
 
   useEffect(() => {
     if (previousReset.current !== reset) {
@@ -81,7 +88,8 @@ export function Composer({ conversationId, disabled, reset, onSend }: { conversa
       examples: draft.attachments.filter(file => file.kind === 'sample').map(file => file.text.trim()).filter(Boolean),
       headlines: draft.attachments.filter(file => file.kind === 'headline').map(file => file.text.trim()).filter(Boolean),
       source_urls: referenceLinks(draft.instruction),
-      revision_targets: [],
+      revision_targets: targets,
+      generation_settings: settings,
     };
     if (!body.instruction) return setError('Write a message before sending.');
     if (body.instruction.length > 4000) return setError('Keep the message within 4,000 characters. Attach longer samples as .txt files.');
@@ -143,15 +151,24 @@ export function Composer({ conversationId, disabled, reset, onSend }: { conversa
           <span className="attachment-extension">{file.name.slice(-4).toUpperCase()}</span>
         </li>)}
       </ul>}
+      {targets.length > 0 && <div className="revision-selection" role="status">
+        <span>{targets.length} {targets.length === 1 ? 'draft' : 'drafts'} selected for revision</span>
+        <button type="button" onClick={onClearTargets}>Clear selection</button>
+      </div>}
       <div className="composer-row">
         <button className="icon-button attach-button" type="button" aria-label="Attach text files" title="Attach text files (.txt)" onClick={() => fileInput.current?.click()}>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M7 13l7-7" /></svg>
         </button>
         <textarea id="instruction" ref={input} value={draft.instruction} onChange={event => setDraft({ ...draft, instruction: event.target.value })} onKeyDown={keyDown} maxLength={4000} rows={1} required placeholder="Message FableAI" />
+        <button className="icon-button options-button" type="button" aria-label="Writing options" title="Writing options" aria-expanded={optionsOpen} aria-controls="generation-options" onClick={() => setOptionsOpen(value => !value)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h6m4 0h6M4 17h10m4 0h2M10 4v6m4 4v6" /></svg>
+          {Object.entries(settings).some(([key, value]) => value !== defaultSettings[key as keyof typeof defaultSettings]) && <span className="options-indicator" />}
+        </button>
         <button className="icon-button send-button" type="submit" aria-label="Send" title="Send">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
         </button>
       </div>
+      {optionsOpen && <GenerationOptions settings={settings} onChange={setSettings} />}
       <input ref={fileInput} type="file" accept=".txt,text/plain" multiple hidden aria-label="Attach text files" onChange={attach} />
       {error && <p role="alert" className="error-text">{error}</p>}
     </fieldset>
