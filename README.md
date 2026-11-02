@@ -37,7 +37,7 @@ Use your own key and exact model ID after completing the account checks below. S
 
 You can also append `-- --setup` to any start command, for example `npm run start:backend -- --setup`. Use setup after pulling dependency changes. Normal starts reuse installed dependencies and configured credentials. If PowerShell blocks `npm.ps1`, use `npm.cmd` in these commands.
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite forwards `/api` requests to the backend at `127.0.0.1:8000`. Both servers bind to loopback. The relevant ports must be available; the launcher reports conflicts without stopping existing processes. Press `Ctrl+C` once to stop the launched servers. If either server exits, the launcher stops its peer.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite forwards `/api` requests to the backend at `127.0.0.1:8000`. Both servers bind to loopback. The relevant ports must be available; the launcher reports conflicts without stopping existing processes. Press `Ctrl+C` once to stop the launched servers. If either server exits, the launcher reports its exit code and stops its peer. On Windows, the backend uses Uvicorn's file watcher with a targeted worker restart so a code reload cannot send Ctrl+C to the launcher or frontend. A reload terminates the old worker immediately, so in-flight requests are interrupted; save code changes after requests finish.
 
 [GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}` without a model call. API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), with the machine-readable contract at `/openapi.json`.
 

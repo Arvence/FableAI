@@ -69,7 +69,7 @@ export async function runProcesses(commands, { signal, continuous = false } = {}
   try {
     const first = await Promise.race([...records.map(record => record.finished), aborted]);
     if (signal?.aborted) return 0;
-    if (continuous) console.error(first.label + ' stopped. Stopping the other development server.');
+    if (continuous) console.error(first.label + ' stopped (exit ' + first.code + '). Stopping the other development server.');
     return continuous ? first.code || 1 : first.code;
   } finally {
     signal?.removeEventListener('abort', onAbort);
@@ -113,6 +113,13 @@ async function prepareFrontend(refresh, signal) {
   }
 }
 
+export function backendCommand(app = 'app.main:app', cwd = backend, port = 8000) {
+  const args = process.platform === 'win32'
+    ? [join(root, 'scripts/dev_backend.py'), app, String(port)]
+    : ['-m', 'uvicorn', app, '--reload', '--host', '127.0.0.1', '--port', String(port)];
+  return { label: 'Backend', command: python, args, cwd };
+}
+
 export async function main(args = process.argv.slice(2)) {
   if (args.includes('--help')) {
     console.log('From the repository root:\n  npm run start:all\n  npm run start:frontend\n  npm run start:backend\n  npm run start:all:setup\n  npm run setup\n\nUse -- --setup with any start command to refresh its dependencies.\nMissing dependencies and backend settings are handled on first start.');
@@ -143,7 +150,7 @@ export async function main(args = process.argv.slice(2)) {
     }
     const commands = [];
     if (needsBackend) {
-      commands.push({ label: 'Backend', command: python, args: ['-m', 'uvicorn', 'app.main:app', '--reload', '--host', '127.0.0.1', '--port', '8000'], cwd: backend });
+      commands.push(backendCommand());
       console.log('Backend: http://127.0.0.1:8000');
     }
     if (needsFrontend) {

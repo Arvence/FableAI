@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
-import { assertPortAvailable, main, runProcesses } from './dev.mjs';
+import { assertPortAvailable, backendCommand, main, runProcesses } from './dev.mjs';
 
 async function waitFor(predicate) {
   const deadline = Date.now() + 10000;
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() > deadline) throw new Error('Timed out waiting for a test process.');
     await delay(50);
   }
@@ -117,4 +117,82 @@ test('an already cancelled operation never starts a process', async () => {
   const controller = new AbortController();
   controller.abort();
   assert.equal(await runProcesses([{ label: 'Never launched', command: 'missing', args: [] }], { signal: controller.signal }), 0);
+});
+
+
+test('Windows backend reload keeps the launcher and peer alive, then cancellation releases the port', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fableai-reload-'));
+  const marker = join(directory, 'peer.json');
+  const application = join(directory, 'fixture.py');
+  writeFileSync(application, [
+    'import os',
+    'from fastapi import FastAPI',
+    'app = FastAPI()',
+    '@app.get("/")',
+    'def health():',
+    '    return os.getpid()',
+  ].join('\n'));
+  const server = createServer();
+  await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
+  const port = server.address().port;
+  await new Promise(resolveClose => server.close(resolveClose));
+  const controller = new AbortController();
+  let settled = false;
+  let pids = [];
+  let originalWorker;
+  let currentWorker;
+  const backend = backendCommand('fixture:app', directory, port);
+  const running = runProcesses([backend, service(marker)], { signal: controller.signal, continuous: true }).then(code => { settled = true; return code; });
+  const worker = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:' + port, { headers: { Connection: 'close' }, signal: AbortSignal.timeout(1000) });
+      return response.ok ? Number(await response.text()) : null;
+    } catch { return null; }
+  };
+  try {
+    await waitFor(async () => existsSync(marker) && (originalWorker = await worker()));
+    pids = JSON.parse(readFileSync(marker, 'utf8'));
+    await delay(500);
+    const changed = new Date(Date.now());
+    utimesSync(application, changed, changed);
+    await waitFor(async () => (currentWorker = await worker()) && currentWorker !== originalWorker);
+    assert.equal(settled, false, 'Reload must not end the launcher.');
+    assert.ok(pids.every(alive), 'The peer and its descendants must survive reload.');
+    assert.equal(await worker(), currentWorker);
+    controller.abort();
+    assert.equal(await running, 0);
+    await waitFor(() => [...pids, originalWorker, currentWorker].every(pid => !alive(pid)));
+    await assertPortAvailable(port);
+  } finally {
+    controller.abort();
+    await running;
+    cleanup([...pids, originalWorker, currentWorker].filter(Boolean));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('a Windows backend import failure exits instead of leaving only its watcher alive', { skip: process.platform !== 'win32', timeout: 10000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fableai-startup-failure-'));
+  const marker = join(directory, 'peer.json');
+  const server = createServer();
+  await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
+  const port = server.address().port;
+  await new Promise(resolveClose => server.close(resolveClose));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  let pids = [];
+  const running = runProcesses([backendCommand('missing_fableai_fixture:app', directory, port), service(marker)], { signal: controller.signal, continuous: true });
+  try {
+    assert.equal(await running, 3);
+    pids = JSON.parse(readFileSync(marker, 'utf8'));
+    await waitFor(() => pids.every(pid => !alive(pid)));
+    await assertPortAvailable(port);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    await running;
+    cleanup(pids);
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
