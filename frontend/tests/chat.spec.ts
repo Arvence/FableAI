@@ -174,7 +174,7 @@ test('mobile layout and keyboard input preserve multiline text and IME compositi
   await page.keyboard.press('Tab');
   await expect(page.getByRole('navigation', { name: 'Chats', exact: true }).getByRole('button').first()).toBeFocused();
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Expand sidebar', exact: true })).toHaveAttribute('aria-expanded', 'false');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page.getByLabel('Message composer')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('mobile.png'), fullPage: true });
@@ -362,7 +362,7 @@ test('request-response groups share one chat scroll and preserve the reader posi
   const historyBox = (await history.boundingBox())!;
   expect(sidebarBox.x).toBe(0);
   expect(sidebarBox.x + sidebarBox.width).toBeLessThanOrEqual(historyBox.x);
-  expect(Math.abs(historyBox.x + historyBox.width - page.viewportSize()!.width)).toBeLessThan(1);
+  expect(Math.abs(historyBox.x + historyBox.width - (await page.getByRole('complementary', { name: 'Writing Options', exact: true }).boundingBox())!.x)).toBeLessThan(1);
   await expect(page.getByRole('banner')).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Drafts and references' })).toHaveCount(0);
   const firstTurnBox = (await history.locator('.conversation-turn').first().boundingBox())!;
@@ -516,7 +516,7 @@ test('chat history scrolls and paginates independently from the conversation', a
 
 test('free-form topics and trailing numbers generate without a settings questionnaire', async ({ page }) => {
   await expect(page.getByLabel('Your message')).toHaveValue('');
-  await expect(page.getByRole('button', { name: 'Writing options', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('complementary', { name: 'Writing Options', exact: true })).toBeVisible();
   const response = await send(page, 'create rainy day 11');
   expect(response.request().postDataJSON().generation_settings).toEqual({ body_length_mode: 'target', count: 1, tone: 'neutral', category: 'news', language: 'en', min_body_chars: 100, max_body_chars: 300 });
   const generated = await response.json();
@@ -539,7 +539,7 @@ test('optional writing controls reach generation, survive reload, and preserve r
   await page.getByRole('combobox', { name: 'Tone', exact: true }).selectOption('formal');
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('en');
   await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('300');
-  await page.getByRole('combobox', { name: 'Drafts', exact: true }).selectOption('2');
+  await page.getByRole('spinbutton', { name: 'Drafts', exact: true }).fill('2');
   await expect(page.getByLabel('Your message')).toHaveValue('');
   const response = await send(page, 'rainy afternoons');
   expect(response.request().postDataJSON().generation_settings).toEqual({ body_length_mode: 'target', count: 2, tone: 'formal', category: 'news', language: 'en', min_body_chars: 100, max_body_chars: 300 });
@@ -557,28 +557,32 @@ test('optional writing controls reach generation, survive reload, and preserve r
   const id = await selectedChatId(page);
   await page.reload();
   await page.getByRole('button', { name: 'Writing options', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: 'Drafts', exact: true })).toHaveValue('2');
   await expect(page.getByRole('combobox', { name: 'Content type', exact: true })).toHaveValue('news');
   await page.screenshot({ path: testInfo.outputPath('writing-options-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Writing options', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toBeInViewport();
-  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toBeInViewport();
+  await expect(page.getByRole('spinbutton', { name: 'Drafts', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('writing-options-mobile-drawer.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Close writing options', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('writing-options-mobile.png'), fullPage: true });
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await expect(page.getByLabel('Your message')).toBeEnabled();
   await page.getByRole('button', { name: 'Writing options', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: 'Drafts', exact: true })).toHaveValue('1');
+  await page.getByRole('button', { name: 'Close writing options', exact: true }).click();
   await page.locator('.chat-link[data-conversation-id="' + id + '"]').click();
   await expect(page.getByLabel('Your message')).toBeEnabled();
   await page.getByRole('button', { name: 'Writing options', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: 'Drafts', exact: true })).toHaveValue('2');
 });
 
 test('explicit message preferences override optional writing controls', async ({ page }) => {
   await page.getByRole('button', { name: 'Writing options', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Drafts', exact: true }).selectOption('2');
+  await page.getByRole('spinbutton', { name: 'Drafts', exact: true }).fill('2');
   await page.getByRole('combobox', { name: 'Tone', exact: true }).selectOption('playful');
   await page.getByRole('combobox', { name: 'Content type', exact: true }).selectOption('news');
   await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('tr');
@@ -594,11 +598,14 @@ test('explicit message preferences override optional writing controls', async ({
 test('writing controls prevent incompatible batch sizes and reset to visible defaults', async ({ page }) => {
   await page.getByRole('button', { name: 'Writing options', exact: true }).click();
   await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('1200');
-  const count = page.getByRole('combobox', { name: 'Drafts', exact: true });
-  await expect(count.locator('option[value="10"]')).toHaveJSProperty('disabled', false);
-  await expect(count.locator('option[value="11"]')).toHaveJSProperty('disabled', true);
+  const count = page.getByRole('spinbutton', { name: 'Drafts', exact: true });
+  await count.fill('10');
+  await expect(count).toHaveAttribute('aria-invalid', 'false');
+  await count.fill('11');
+  await expect(count).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#draft-count-error')).toContainText('12,000');
   await page.getByRole('combobox', { name: 'Body length', exact: true }).selectOption('300');
-  await count.selectOption('20');
+  await count.fill('20');
   await expect(page.getByRole('combobox', { name: 'Body length', exact: true }).locator('option[value="700"]')).toHaveJSProperty('disabled', true);
   await expect(page.getByRole('combobox', { name: 'Body length', exact: true }).locator('option[value="1200"]')).toHaveJSProperty('disabled', true);
   await page.getByRole('button', { name: 'Reset', exact: true }).click();
@@ -616,7 +623,7 @@ test('old automatic or partial browser settings become visible concrete defaults
   await page.reload();
   await expect(page.getByLabel('Your message')).toBeEnabled();
   await page.getByRole('button', { name: 'Writing options', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Drafts', exact: true })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: 'Drafts', exact: true })).toHaveValue('1');
   await expect(page.getByRole('combobox', { name: 'Tone', exact: true })).toHaveValue('formal');
   await expect(page.getByRole('combobox', { name: 'Content type', exact: true })).toHaveValue('news');
   await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toHaveValue('en');

@@ -1,3 +1,4 @@
+import { generationSettingsError } from './writingSettings';
 import type { ApiErrorResponse, ChatResponse, Conversation, ConversationSummary, Entry, ImportResponse, Message, PendingSubmission } from './types';
 
 export const base = '/api/v1/conversations';
@@ -55,6 +56,8 @@ export async function loadConversation(id: string, signal?: AbortSignal) {
 }
 
 export async function submit(pending: PendingSubmission) {
+  const settingsProblem = pending.operation === 'messages' ? generationSettingsError(pending.body.generation_settings) : '';
+  if (settingsProblem) throw new ApiError(settingsProblem);
   const result = await request<ChatResponse | ImportResponse>(`/${pending.conversationId}/${pending.operation}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending.key },
