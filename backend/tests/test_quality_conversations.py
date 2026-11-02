@@ -17,7 +17,7 @@ from app.gemini_provider import GeminiProvider
 from app.main import create_app
 from app.reference_import import ReferenceImporter
 from app.revision_generation import RevisionBatch
-from quality_evaluation import BY_ID, CONVERSATION, make_references
+from quality_evaluation import BY_ID, CONVERSATION, EDITORIAL_CASES, make_references
 
 
 BASE = "/api/v1/conversations"
@@ -240,3 +240,46 @@ def test_conflicting_length_followup_asks_for_clarification_without_drafting() -
     assert "consistent minimum and maximum" in result.response.assistant_message
     assert result.snapshot.preferences == state.preferences
     provider.generate.assert_awaited_once()
+
+
+@pytest.mark.parametrize("case", EDITORIAL_CASES, ids=lambda case: case["id"])
+def test_editorial_examples_remain_reviewable_revisable_and_replayable_after_restart(tmp_path: Path, case: dict) -> None:
+    provider = mocked_provider(TurnPlan(action="generate"), DraftBatch(entries=[case["candidate"]]))
+    settings = Settings(database_path=tmp_path / "editorial.sqlite3")
+    body = {"instruction": case["instruction"], "generation_settings": {key: value for key, value in case["constraints"].items() if key != "topic"}}
+    body["generation_settings"]["body_length_mode"] = "target"
+    submission_key = str(uuid4())
+    with open_client(settings, provider) as client:
+        conversation_id = client.post(BASE).json()["conversation_id"]
+        url = f"{BASE}/{conversation_id}"
+        generated = client.post(url + "/messages", json=body, headers={"Idempotency-Key": submission_key})
+        assert generated.status_code == 200, generated.json()
+        result = generated.json()
+        target = result["entries"][0]
+        assert {key: value for key, value in target.items() if key not in {"id", "version"}} == case["candidate"]
+        review = client.patch(f"{url}/entries/{target['id']}", json={"status": "accepted", "expected_version": 1})
+        assert review.status_code == 200 and review.json()["status"] == "accepted"
+        assert provider.generate.await_count == 2
+    with open_client(settings, provider) as client:
+        assert client.get(url).json()["entries"][0]["status"] == "accepted"
+        replay = client.post(url + "/messages", json=body, headers={"Idempotency-Key": submission_key})
+        assert replay.json() == result
+        assert provider.generate.await_count == 2
+        revision_body = case["candidate"]["body"] + "\n\nThe next step is to review the proposed draft."
+        if case["id"] == "lotro-padded":
+            revision_body = next(item["candidate"]["body"] for item in EDITORIAL_CASES if item["id"] == "lotro-direct")
+        revised_content = {**case["candidate"], "body": revision_body}
+        provider.generate.side_effect = [
+            TurnPlan(action="revise", preferences=GenerationPreferences(min_body_chars=100, max_body_chars=1600)),
+            RevisionBatch(entries=[{"entry_id": target["id"], **revised_content}]),
+        ]
+        revised = send(client, conversation_id, "Revise the selected entry with a body between 100 and 1600 characters.", revision_targets=[{"entry_id": target["id"], "expected_version": 1}])
+        assert revised["kind"] == "revision", revised
+        current = revised["entries"][0]
+        assert (current["id"], current["version"], current["status"]) == (target["id"], 2, "draft")
+        assert current["body"] == revision_body
+        assert provider.generate.await_count == 4
+        versions = client.get(f"{url}/entries/{target['id']}/versions").json()["items"]
+        assert [(entry["version"], entry["status"]) for entry in versions] == [(1, "accepted"), (2, "draft")]
+        assert versions[0]["body"] == target["body"]
+        assert client.patch(f"{url}/entries/{target['id']}", json={"status": "rejected", "expected_version": 2}).status_code == 200

@@ -1,17 +1,26 @@
 import type { ChatInput, Entry } from './types';
+import { reviewWriting } from './editorialReview';
 
-export function DraftCards({ entries, disabled, targets, onTarget, onReview }: { entries: Entry[]; disabled: boolean; targets: ChatInput['revision_targets']; onTarget: (entry: Entry) => void; onReview: (entry: Entry, status: 'accepted' | 'rejected') => Promise<void> }) {
+export function DraftCards({ entries, instruction = '', disabled, targets, onTarget, onReview }: { entries: Entry[]; instruction?: string; disabled: boolean; targets: ChatInput['revision_targets']; onTarget: (entry: Entry) => void; onReview: (entry: Entry, status: 'accepted' | 'rejected') => Promise<void> }) {
   if (!entries.length) return null;
   return <section className="drafts" aria-label="Generated drafts">
-    {entries.map(entry => <article className="draft-card" key={entry.id} aria-label={entry.title} data-selected={targets.some(target => target.entry_id === entry.id)}>
-      <div className="draft-meta"><span>Fictional / Mock</span><span>{entry.category} / v{entry.version} / <span className="draft-status" data-status={entry.status}>{entry.status}</span></span></div>
-      <h3>{entry.title}</h3>
-      <p className="preserve-text">{entry.body}</p>
-      <div className="draft-actions">
-        <button className="review-accept" type="button" disabled={disabled || entry.status === 'accepted'} onClick={() => onReview(entry, 'accepted')}>Accept</button>
-        <button className="review-reject" type="button" disabled={disabled || entry.status === 'rejected'} onClick={() => onReview(entry, 'rejected')}>Reject</button>
-        <button type="button" disabled={disabled || (targets.length >= 20 && !targets.some(target => target.entry_id === entry.id))} aria-pressed={targets.some(target => target.entry_id === entry.id)} onClick={() => onTarget(entry)}>Select for revision</button>
-      </div>
-    </article>)}
+    {entries.map(entry => {
+      const findings = reviewWriting(entry, instruction);
+      return <article className="draft-card" key={entry.id} aria-label={entry.title} data-selected={targets.some(target => target.entry_id === entry.id)}>
+        <div className="draft-meta"><span>Fictional / Mock</span><span>{entry.category} / v{entry.version} / <span className="draft-status" data-status={entry.status}>{entry.status}</span></span></div>
+        <h3>{entry.title}</h3>
+        <p className="preserve-text">{entry.body}</p>
+        {findings.length > 0 && <details className="editorial-review">
+          <summary>Writing review ({findings.length})</summary>
+          <p>Suggestions only. Wording checks can miss issues or flag intentional choices; the draft is unchanged.</p>
+          <ul>{findings.map(finding => <li key={finding.code}>{finding.message}</li>)}</ul>
+        </details>}
+        <div className="draft-actions">
+          <button className="review-accept" type="button" disabled={disabled || entry.status === 'accepted'} onClick={() => onReview(entry, 'accepted')}>Accept</button>
+          <button className="review-reject" type="button" disabled={disabled || entry.status === 'rejected'} onClick={() => onReview(entry, 'rejected')}>Reject</button>
+          <button type="button" disabled={disabled || (targets.length >= 20 && !targets.some(target => target.entry_id === entry.id))} aria-pressed={targets.some(target => target.entry_id === entry.id)} onClick={() => onTarget(entry)}>Select for revision</button>
+        </div>
+      </article>;
+    })}
   </section>;
 }

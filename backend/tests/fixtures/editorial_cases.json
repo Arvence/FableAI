@@ -1,0 +1,402 @@
+{
+  "provenance": "Self-authored regression examples based on editorial problems described by the user. These are not live model outputs or semantic quality ratings. Editorial expectations are advisory; structural acceptance is tested separately.",
+  "cases": [
+    {
+      "id": "lotro-padded",
+      "instruction": "Create news about LOTRO. Mention \"LOTRO\" at least once. Describe a dwarf champion lost in the woods of the Shire who urgently requires help from the elves.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "LOTRO"
+      ],
+      "constraints": {
+        "topic": "Create news about LOTRO. Mention \"LOTRO\" at least once. Describe a dwarf champion lost in the woods of the Shire who urgently requires help from the elves.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 700,
+        "max_body_chars": 1200
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Important News About LOTRO",
+        "body": "Deep within the digital expanses of LOTRO, a dwarf champion wanders through the vast and sprawling woods of the Shire. He is lost among the trees and needs help from the elves. The champion urgently needs help from the elves to find a safe route home. The champion urgently needs help from the elves to find a safe route home.\n\nIn this imaginary digital realm, the fictional woods stretch in every direction, creating an elaborate backdrop to a truly remarkable journey. Players can enter the virtual world and take part in the unfolding emergency, searching for clues while the champion waits in the forest. The invented surroundings create an imaginary atmosphere of urgency, with every shadow emphasizing how much assistance is needed.\n\nThe champion remains in urgent need of help, and the urgency continues as the trees surround him. Across the rich tapestry of this fictional landscape, the call for assistance travels through the branches. The elves must find the champion, because finding him is necessary for his rescue. The imaginary forest remains a place where help is needed and where that help could make a difference. The situation continues to develop as the champion waits for assistance, bringing another layer of anticipation to this elaborate description of his predicament.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 3,
+      "expected_list_items": 0,
+      "expected_findings": [
+        "headline",
+        "repetition",
+        "filler",
+        "genre",
+        "perspective"
+      ]
+    },
+    {
+      "id": "lotro-direct",
+      "instruction": "Create news about LOTRO. Mention \"LOTRO\" at least once. Describe a dwarf champion lost in the woods of the Shire who urgently requires help from the elves.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "LOTRO"
+      ],
+      "constraints": {
+        "topic": "Create news about LOTRO. Mention \"LOTRO\" at least once. Describe a dwarf champion lost in the woods of the Shire who urgently requires help from the elves.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] LOTRO Dwarf Champion Calls for Elven Help in the Shire",
+        "body": "A dwarf champion has become lost in the woods of the Shire in this mock LOTRO report. Unable to identify the path back, he has sent an urgent request for elven guides.\n\nThe search party plans to approach from the eastern trail and use marked trees to establish a safe route. The champion has been asked to remain near a fallen oak so rescuers can locate him before nightfall.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "satisfactory-omitted",
+      "instruction": "Create recent news about Satisfactory game.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "Satisfactory"
+      ],
+      "constraints": {
+        "topic": "Create recent news about Satisfactory game.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Important Update",
+        "body": "A logistics network is receiving new routes through a remote industrial valley. The proposed system shifts cargo between production hubs and introduces revised schedules for deliveries.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": [
+        "topic_coverage",
+        "headline"
+      ]
+    },
+    {
+      "id": "satisfactory-focused",
+      "instruction": "Create recent news about Satisfactory game.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "Satisfactory"
+      ],
+      "constraints": {
+        "topic": "Create recent news about Satisfactory game.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Satisfactory Preview Proposes Freight Scheduling",
+        "body": "This mock Satisfactory update introduces a freight schedule for shared factories. Players can reserve station time and identify congested routes before adding another train.\n\nThe proposed planner shows delivery gaps beside production demand, giving factory teams a clearer way to prioritize track upgrades.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "website-announcement",
+      "instruction": "Announce our new website. Mention \"our website\" at least once.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "website"
+      ],
+      "constraints": {
+        "topic": "Announce our new website. Mention \"our website\" at least once.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "announcement",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Our Website Opens a Simpler Resource Library",
+        "body": "Our website brings guides, project updates, and contact details together in one place. This fictional launch draft invites visitors to explore the resource library and send feedback through the new contact form.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "release-update",
+      "instruction": "Write an update about export controls.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "export"
+      ],
+      "constraints": {
+        "topic": "Write an update about export controls.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "update",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Export Controls Add a Preview Before Download",
+        "body": "The mock release adds a preview to export controls so teams can check column order before downloading a file. Saved layouts remain available, and the existing export command follows the same sequence.",
+        "category": "update",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "rainwater-article",
+      "instruction": "Write an article about rainwater storage.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "rainwater"
+      ],
+      "constraints": {
+        "topic": "Write an article about rainwater storage.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "article",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Planning Rainwater Storage for a Small Garden",
+        "body": "A rainwater storage plan starts with the available roof area and a suitable place for the tank. In this fictional garden example, a shaded corner keeps the main path clear.\n\nThe design separates watering needs from storage capacity. A modest overflow route gives surplus water somewhere to go during heavier rain, while an accessible lid makes routine checks easier.",
+        "category": "article",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "gardening-blog",
+      "instruction": "Write a personal blog about quiet gardening.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraphs",
+      "topic_terms": [
+        "gardening"
+      ],
+      "constraints": {
+        "topic": "Write a personal blog about quiet gardening.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "blog",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] What a Quiet Morning in the Garden Taught Me",
+        "body": "I began my quiet gardening session with one small task: clearing space around a crowded planter. In this fictional journal, taking my time made it easier to notice which shoots needed support.\n\nBy the end of the morning, the work felt manageable. I left the larger jobs for another day and wrote down the one adjustment I wanted to try next.",
+        "category": "blog",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 2,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "fantasy-narrative",
+      "instruction": "Write a flowery fantasy story about a forest rescue.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "forest"
+      ],
+      "constraints": {
+        "topic": "Write a flowery fantasy story about a forest rescue.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] An Elf Follows the Lanterns into the Forest",
+        "body": "Once upon a time, deep within a vast and sprawling forest, a lantern hummed above a broken bridge. An elf followed its tune toward a traveler waiting among silver leaves, carrying a rope woven from moonlit grass.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "intentional-perspectives",
+      "instruction": "Create news about a forest rescue. Compare character and player perspectives.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "forest"
+      ],
+      "constraints": {
+        "topic": "Create news about a forest rescue. Compare character and player perspectives.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Forest Rescue Opens a Route Through the Old Gate",
+        "body": "A forest rescue begins at an abandoned gate in this fictional scenario. He is waiting beside the broken arch while the search party checks the river path. Players can trace the same route on the map and decide where to send support.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": []
+    },
+    {
+      "id": "missing-explicit-phrase",
+      "instruction": "Write a news draft about a forest rescue. Mention \"the eastern trail\" at least once.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "forest"
+      ],
+      "constraints": {
+        "topic": "Write a news draft about a forest rescue. Mention \"the eastern trail\" at least once.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "news",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Forest Search Moves Toward the River Crossing",
+        "body": "A forest search party has reached the river crossing in this mock report. Guides have marked a return route and arranged a meeting point for the travelers who were separated during the journey.",
+        "category": "news",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": [
+        "explicit_wording"
+      ]
+    },
+    {
+      "id": "missing-requested-bullets",
+      "instruction": "Write an announcement about a workshop. Use bullet points.",
+      "reference": "A self-authored sample explains how a pottery workshop organizes its tools and welcomes visitors.",
+      "format": "paragraph",
+      "topic_terms": [
+        "workshop"
+      ],
+      "constraints": {
+        "topic": "Write an announcement about a workshop. Use bullet points.",
+        "count": 1,
+        "tone": "neutral",
+        "category": "announcement",
+        "language": "en",
+        "min_body_chars": 100,
+        "max_body_chars": 1600
+      },
+      "candidate": {
+        "title": "[FICTIONAL] Workshop Opens an Afternoon Repair Session",
+        "body": "The fictional workshop welcomes visitors for an afternoon repair session. Bring a small item to inspect, choose a workbench, and ask the team which materials are suitable before starting.",
+        "category": "announcement",
+        "tags": [
+          "fiction"
+        ],
+        "language": "en",
+        "is_synthetic": true,
+        "status": "draft"
+      },
+      "expected_paragraphs": 1,
+      "expected_list_items": 0,
+      "expected_findings": [
+        "explicit_format"
+      ]
+    }
+  ]
+}

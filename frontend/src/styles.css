@@ -227,6 +227,11 @@ details[open] > summary { margin-bottom: 8px; }
 .draft-actions { margin-top: 16px; }
 .draft-actions .review-accept:hover:not(:disabled) { color: var(--status-success); }
 .draft-actions .review-reject:hover:not(:disabled) { color: var(--status-error); }
+.editorial-review { margin: 16px 0; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.editorial-review summary { color: var(--accent-secondary); }
+.editorial-review p, .editorial-review ul { color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.editorial-review ul { padding-left: 18px; margin-bottom: 0; }
+.editorial-review li + li { margin-top: 6px; }
 .draft-card + .draft-card { margin-top: 12px; }
 .draft-card h3 { margin: 10px 0; font-size: 15px; }
 .draft-meta, .draft-actions, .revision-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

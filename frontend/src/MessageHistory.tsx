@@ -48,6 +48,7 @@ export function MessageHistory({ messages, createdAt, loading, entries, disabled
         </details>}
         {message.response && (message.response.kind === 'generation' || message.response.kind === 'revision') && <DraftCards
           entries={entries.filter(entry => message.response?.kind !== 'error' && message.response?.entries.some(saved => saved.id === entry.id && saved.version === entry.version))}
+          instruction={turn.find(item => item.role === 'user')?.request?.instruction ?? turn.find(item => item.role === 'user')?.content ?? ''}
           disabled={disabled} targets={targets} onTarget={onTarget} onReview={onReview}
         />}
         {message.response && <JsonView value={message.response} />}

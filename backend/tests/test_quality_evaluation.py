@@ -13,7 +13,7 @@ from app.contracts import DraftBatch
 from app.conversation_contracts import ConversationResponse
 from app.gemini_provider import GeminiProvider
 from app.synthetic_generation import SyntheticGenerationService
-from quality_evaluation import BY_ID, CASES, CHECKS, DATASET, MANUAL_REVIEW_QUESTIONS, evaluate_candidate, list_item_count, make_references, make_request, paragraph_count
+from quality_evaluation import BY_ID, CASES, CHECKS, DATASET, EDITORIAL_CASES, EDITORIAL_DATASET, MANUAL_REVIEW_QUESTIONS, evaluate_candidate, list_item_count, make_references, make_request, paragraph_count
 
 
 @pytest.fixture
@@ -236,3 +236,35 @@ def test_distinct_multi_entry_fixture_has_measurable_lexical_diversity(offline_g
     assert all(value is True for value in evaluation.checks.values()), evaluation
     assert 0 <= evaluation.measurements["maximum_pair_word_jaccard"] < 0.8
     assert evaluation.manual_review["semantic_diversity"] == "not_evaluated"
+
+
+def test_editorial_corpus_separates_advisories_from_structural_acceptance() -> None:
+    assert "Self-authored" in EDITORIAL_DATASET["provenance"]
+    assert {case["candidate"]["category"] for case in EDITORIAL_CASES} == {"news", "announcement", "update", "article", "blog"}
+    assert any(case["expected_findings"] for case in EDITORIAL_CASES)
+    assert any(not case["expected_findings"] for case in EDITORIAL_CASES)
+
+
+@pytest.mark.parametrize("case", EDITORIAL_CASES, ids=lambda case: case["id"])
+def test_editorial_examples_keep_original_entries_and_existing_length_policy(offline_generation: Callable, case: dict) -> None:
+    raw_json = json.dumps({"entries": [case["candidate"]]})
+    service, requests = offline_generation(raw_json)
+    request = make_request(case)
+    response = asyncio.run(service.generate(request, make_references(case), strict_body_length=False))
+    assert TypeAdapter(ConversationResponse).validate_json(response.model_dump_json()) == response
+    assert response.kind == "generation", response.model_dump()
+    assert response.entries[0].model_dump(exclude={"id", "version"}) == case["candidate"]
+    assert len(requests) == 1
+    evaluation = evaluate_candidate(raw_json, case, request)
+    assert evaluation.checks["json_schema"] is True
+    assert set(evaluation.manual_review.values()) == {"not_evaluated"}
+    if case["id"] == "satisfactory-omitted":
+        assert evaluation.checks["topic_term_proxy"] is False
+    outside_target = not request.min_body_chars <= len(case["candidate"]["body"]) <= request.max_body_chars
+    assert ("Length notice:" in response.assistant_message) is outside_target
+    if outside_target:
+        strict_service, strict_requests = offline_generation(raw_json)
+        strict_result = asyncio.run(strict_service.generate(request, make_references(case)))
+        assert strict_result.kind == "error"
+        assert strict_result.error.code == "generation_failed"
+        assert len(strict_requests) == 1

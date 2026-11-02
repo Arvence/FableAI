@@ -14,6 +14,8 @@ from app.generation_checks import has_suspect_overlap, normalized_words
 
 DATASET = json.loads((Path(__file__).parent / "fixtures" / "quality_cases.json").read_text(encoding="utf-8"))
 CASES = DATASET["cases"]
+EDITORIAL_DATASET = json.loads((Path(__file__).parent / "fixtures" / "editorial_cases.json").read_text(encoding="utf-8"))
+EDITORIAL_CASES = EDITORIAL_DATASET["cases"]
 BY_ID = {case["id"]: case for case in CASES}
 CONVERSATION = DATASET["conversation"]
 CONVERSATION_ID = UUID("5c7c0c86-4648-4c36-8179-ec06b67b9f16")
