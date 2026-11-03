@@ -8,9 +8,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 
 from app.transport.chat_api import router
+from app.transport.project_api import router as project_router
 from app.config import Settings, load_settings
 from app.contracts import SourcePermission
-from app.persistence.conversation_repository import ConversationRepository, RepositoryError
+from app.persistence.conversation_repository import ConversationRepository
+from app.persistence.errors import RepositoryError
+from app.persistence.project_repository import ProjectRepository
 from app.generation.conversation_service import ConversationService
 from app.persistence.database import Database
 from app.generation.gemini_provider import GeminiProvider
@@ -29,6 +32,7 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
             repository = ConversationRepository(database)
             repository.recover_expired()
             application.state.repository = repository
+            application.state.projects = ProjectRepository(database)
             application.state.conversations = PersistentConversationService(repository, ConversationService(provider or GeminiProvider(configured)), importer_factory=importer_factory)
             yield
         finally:
@@ -36,6 +40,7 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
 
     application = FastAPI(title=settings.app_name if settings else "FableAI", lifespan=lifespan)
     application.include_router(router)
+    application.include_router(project_router)
 
     application.add_middleware(HttpSafeguardsMiddleware)
 
