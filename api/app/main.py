@@ -23,7 +23,7 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         configured = settings or load_settings()
-        database = Database(configured.database_path)
+        database = Database(configured.database_url.get_secret_value() if configured.database_url else configured.database_path)
         try:
             database.initialize()
             repository = ConversationRepository(database)

@@ -7,3 +7,5 @@ httpx==0.28.1
 httpx2==2.13.1
 SQLAlchemy==2.1.5
 python-dotenv==1.2.4
+alembic==1.20.1
+psycopg[binary]==3.3.6

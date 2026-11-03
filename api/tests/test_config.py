@@ -11,28 +11,29 @@ from app.main import create_app
 
 
 def test_loads_backend_env_with_quotes_comments_and_windows_utf8_bom(tmp_path: Path) -> None:
-    database_path = tmp_path / "chat.sqlite3"
-    config.ENV_FILE.write_text(f'GEMINI_API_KEY="fake-file-key" # test only\nGEMINI_MODEL=mock-model\nFABLEAI_DATABASE_PATH="{database_path.as_posix()}"\nUNRELATED_SETTING=ignored\n', encoding="utf-8-sig")
+    database_url = "postgresql+psycopg://test:private-password@127.0.0.1:5432/fableai"
+    config.ENV_FILE.write_text(f'GEMINI_API_KEY="fake-file-key" # test only\nGEMINI_MODEL=mock-model\nFABLEAI_DATABASE_URL="{database_url}"\nUNRELATED_SETTING=ignored\n', encoding="utf-8-sig")
 
     settings = config.load_settings()
 
     assert settings.gemini_api_key.get_secret_value() == "fake-file-key"
     assert settings.gemini_model == "mock-model"
-    assert settings.database_path == database_path
+    assert settings.database_url.get_secret_value() == database_url
+    assert "private-password" not in settings.model_dump_json()
     assert "fake-file-key" not in settings.model_dump_json()
 
 
 @pytest.mark.parametrize("value", ["fake-process-value", ""])
 def test_process_environment_overrides_file_even_when_empty(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    config.ENV_FILE.write_text("GEMINI_API_KEY=fake-file-key\nGEMINI_MODEL=mock-file-model\nFABLEAI_DATABASE_PATH=file.sqlite3\n", encoding="utf-8")
-    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "FABLEAI_DATABASE_PATH"):
+    config.ENV_FILE.write_text("GEMINI_API_KEY=fake-file-key\nGEMINI_MODEL=mock-file-model\nFABLEAI_DATABASE_URL=postgresql+psycopg://localhost/file_db\n", encoding="utf-8")
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "FABLEAI_DATABASE_URL"):
         monkeypatch.setenv(name, value)
 
     settings = config.load_settings()
 
     assert (settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None) == (value or None)
     assert settings.gemini_model == (value or None)
-    assert settings.database_path == (Path(value) if value else config.Settings().database_path)
+    assert (settings.database_url.get_secret_value() if settings.database_url else None) == (value or None)
 
 
 def test_missing_file_does_not_load_cwd_env_or_example_template(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -77,8 +78,13 @@ def test_loading_settings_again_reads_updated_file() -> None:
 
 
 def test_application_startup_passes_file_configuration_to_mocked_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.persistence.database import Database
+
     database_path = tmp_path / "startup.sqlite3"
-    config.ENV_FILE.write_text(f'GEMINI_API_KEY=fake-startup-key\nGEMINI_MODEL=mock-startup-model\nFABLEAI_DATABASE_PATH="{database_path.as_posix()}"\n', encoding="utf-8")
+    database_url = "postgresql+psycopg://test:private-password@localhost/test"
+    database_factory = Mock(side_effect=lambda _: Database(database_path))
+    monkeypatch.setattr("app.main.Database", database_factory)
+    config.ENV_FILE.write_text(f'GEMINI_API_KEY=fake-startup-key\nGEMINI_MODEL=mock-startup-model\nFABLEAI_DATABASE_URL="{database_url}"\n', encoding="utf-8")
     provider = Mock()
     provider.generate = AsyncMock(return_value=TurnPlan(action="message"))
     factory = Mock(return_value=provider)
@@ -92,8 +98,18 @@ def test_application_startup_passes_file_configuration_to_mocked_provider(monkey
         assert "fake-startup-key" not in response.text
         assert client.app.state.repository.database.path == database_path
 
+    database_factory.assert_called_once_with(database_url)
     factory.assert_called_once()
     settings = factory.call_args.args[0]
     assert settings.gemini_api_key.get_secret_value() == "fake-startup-key"
     assert settings.gemini_model == "mock-startup-model"
     provider.generate.assert_awaited_once()
+
+
+def test_legacy_sqlite_environment_does_not_silently_select_or_modify_old_data(tmp_path: Path) -> None:
+    legacy = tmp_path / "old.sqlite3"
+    legacy.write_bytes(b"preserve this legacy file")
+    config.ENV_FILE.write_text(f"FABLEAI_DATABASE_PATH={legacy.as_posix()}\n", encoding="utf-8")
+    settings = config.load_settings()
+    assert settings.database_url is None and settings.database_path is None
+    assert legacy.read_bytes() == b"preserve this legacy file"

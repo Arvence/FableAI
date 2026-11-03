@@ -9,6 +9,7 @@
     "start:backend": "node scripts/dev.mjs backend",
     "start:all:setup": "node scripts/dev.mjs all --setup",
     "setup": "node scripts/dev.mjs setup",
+    "db:migrate": "node scripts/dev.mjs migrate",
     "test:scripts": "node --test scripts/dev.test.mjs"
   },
   "engines": {

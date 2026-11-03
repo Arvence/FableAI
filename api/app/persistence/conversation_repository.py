@@ -50,12 +50,12 @@ class ConversationRepository:
 
     @contextmanager
     def _write(self) -> Iterator[Session]:
-        with self.database.engine.connect().execution_options(write_transaction=True) as connection, Session(bind=connection) as session, session.begin():
+        with self.database.engine.connect().execution_options(write_transaction=True) as connection, Session(bind=connection, info={"write_transaction": True}) as session, session.begin():
             yield session
 
     @staticmethod
     def _conversation(session: Session, conversation_id: UUID) -> ConversationRow:
-        row = session.get(ConversationRow, str(conversation_id))
+        row = session.get(ConversationRow, str(conversation_id), with_for_update=True if session.info.get("write_transaction") else {"read": True})
         if row is None:
             raise RepositoryError("conversation_not_found", "The conversation does not exist.")
         return row
@@ -166,7 +166,7 @@ class ConversationRepository:
 
     def recover_expired(self) -> None:
         with self._write() as session:
-            for row in session.scalars(select(ConversationRow).where(ConversationRow.processing_id.is_not(None))):
+            for row in session.scalars(select(ConversationRow).where(ConversationRow.processing_id.is_not(None)).order_by(ConversationRow.id).with_for_update(skip_locked=True)):
                 self._recover(session, row)
 
     def begin(self, conversation_id: UUID, submission_id: UUID, operation: str, data: dict) -> SubmissionClaim | SavedResponse:

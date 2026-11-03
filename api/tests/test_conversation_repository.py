@@ -27,7 +27,7 @@ def repository(tmp_path: Path) -> ConversationRepository:
 
 def test_schema_uses_foreign_keys_wal_and_unique_message_positions(repository: ConversationRepository) -> None:
     schema = inspect(repository.database.engine)
-    assert set(schema.get_table_names()) == {"conversations", "submissions", "chat_messages", "reference_material", "generated_entries", "entry_versions", "entry_reviews"}
+    assert set(schema.get_table_names()) == {"conversations", "submissions", "chat_messages", "reference_material", "generated_entries", "entry_versions", "entry_reviews", "alembic_version", "projects", "project_references"}
     with repository.database.engine.connect() as connection:
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"

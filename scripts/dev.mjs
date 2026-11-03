@@ -96,7 +96,7 @@ async function prepareBackend(refresh, signal) {
     console.log('Creating api/.venv...');
     await run('Python environment setup', selected[0], [...selected.slice(1), '-m', 'venv', '.venv'], backend, signal);
   }
-  const imports = 'import fastapi, google.genai, pydantic, uvicorn, httpx, httpx2, sqlalchemy, dotenv';
+  const imports = 'import fastapi, google.genai, pydantic, uvicorn, httpx, httpx2, sqlalchemy, dotenv, alembic, psycopg';
   if (refresh || !probe(python, ['-c', imports])) {
     console.log('Installing backend dependencies...');
     await run('Backend dependency installation', python, ['-m', 'pip', 'install', '-r', 'requirements.txt'], backend, signal);
@@ -122,12 +122,12 @@ export function backendCommand(app = 'app.main:app', cwd = backend, port = 8000)
 
 export async function main(args = process.argv.slice(2)) {
   if (args.includes('--help')) {
-    console.log('From the repository root:\n  npm run start:all\n  npm run start:frontend\n  npm run start:backend\n  npm run start:all:setup\n  npm run setup\n\nUse -- --setup with any start command to refresh its dependencies.\nMissing dependencies and backend settings are handled on first start.');
+    console.log('From the repository root:\n  npm run start:all\n  npm run start:frontend\n  npm run start:backend\n  npm run start:all:setup\n  npm run setup\n  npm run db:migrate\n\nUse -- --setup with any start command to refresh its dependencies.\nMissing dependencies and backend settings are handled on first start.');
     return 0;
   }
   const [target, ...flags] = args;
-  if (!['all', 'frontend', 'backend', 'setup'].includes(target) || flags.some(flag => flag !== '--setup')) {
-    console.error('Use start:all, start:frontend, start:backend, start:all:setup, or setup. Optional flag: --setup.');
+  if (!['all', 'frontend', 'backend', 'setup', 'migrate'].includes(target) || flags.some(flag => flag !== '--setup')) {
+    console.error('Use start:all, start:frontend, start:backend, start:all:setup, setup, or db:migrate. Optional flag: --setup.');
     return 1;
   }
   const controller = new AbortController();
@@ -135,6 +135,10 @@ export async function main(args = process.argv.slice(2)) {
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
   try {
+    if (target === 'migrate') {
+      if (!existsSync(python)) throw new Error('Set up api/.venv before running database migrations.');
+      return await runProcesses([{ label: 'Database migrations', command: python, args: ['-m', 'alembic', '-c', 'alembic.ini', 'upgrade', 'head'], cwd: backend }], { signal: controller.signal });
+    }
     const needsBackend = target !== 'frontend';
     const needsFrontend = target !== 'backend';
     const refresh = target === 'setup' || flags.includes('--setup');

@@ -84,3 +84,24 @@ class ReviewRow(Base):
     status: Mapped[str] = mapped_column(String(10))
     created_at: Mapped[str] = mapped_column(String(40))
     __table_args__ = (ForeignKeyConstraint(["entry_id", "version"], ["entry_versions.entry_id", "entry_versions.version"]), CheckConstraint("status IN ('accepted', 'rejected')"))
+
+
+class ProjectRow(Base):
+    __tablename__ = "projects"
+    project_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+    generation_settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    instructions: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class ProjectReferenceRow(Base):
+    __tablename__ = "project_references"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.project_id"), primary_key=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(10))
+    position: Mapped[int]
+    import_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    content: Mapped[dict] = mapped_column(JSON)
+    __table_args__ = (UniqueConstraint("project_id", "kind", "position"), CheckConstraint("kind IN ('examples', 'headlines', 'urls')"), CheckConstraint("position >= 0"))
