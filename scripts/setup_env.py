@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import dotenv_values, set_key
 
 
-BACKEND = Path(__file__).resolve().parents[1] / "backend"
+API_DIRECTORY = Path(__file__).resolve().parents[1] / "api"
 SETTINGS = ("GEMINI_API_KEY", "GEMINI_MODEL")
 
 
@@ -17,7 +17,7 @@ def configure_env(env_path: Path, template_path: Path, *, interactive: bool | No
         descriptor = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
             output.write(template)
-        print("Created backend/.env from the blank template.")
+        print("Created api/.env from the blank template.")
 
     values = dotenv_values(env_path, encoding="utf-8-sig", interpolate=False)
     missing = [name for name in SETTINGS if not (os.environ.get(name, values.get(name)) or "").strip()]
@@ -27,21 +27,21 @@ def configure_env(env_path: Path, template_path: Path, *, interactive: bool | No
 
     interactive = sys.stdin.isatty() and sys.stdout.isatty() if interactive is None else interactive
     if not interactive:
-        print("Generation is not configured. Set " + ", ".join(missing) + " in backend/.env or rerun setup in an interactive terminal.")
+        print("Generation is not configured. Set " + ", ".join(missing) + " in api/.env or rerun setup in an interactive terminal.")
         return
 
     print("Enter your own Free Tier verified Gemini key and exact model ID. No API request or account change is made.")
     print("Press Enter to skip a setting; the app can start without generation.")
     for name in missing:
         if name in os.environ:
-            print(name + " is empty in the process environment and overrides backend/.env. Unset it or set it before restarting.")
+            print(name + " is empty in the process environment and overrides api/.env. Unset it or set it before restarting.")
             continue
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", getpass.GetPassWarning)
                 value = (getpass.getpass("GEMINI_API_KEY (hidden): ") if name == "GEMINI_API_KEY" else input("GEMINI_MODEL: ")).strip()
         except (EOFError, getpass.GetPassWarning):
-            print("Secure interactive input is unavailable. Edit backend/.env locally.")
+            print("Secure interactive input is unavailable. Edit api/.env locally.")
             break
         if not value:
             continue
@@ -49,12 +49,12 @@ def configure_env(env_path: Path, template_path: Path, *, interactive: bool | No
             print("Skipped " + name + ": the value must be a single line without control characters.")
             continue
         set_key(env_path, name, value, quote_mode="always", encoding="utf-8-sig")
-        print("Saved " + name + " in backend/.env.")
+        print("Saved " + name + " in api/.env.")
 
 
 if __name__ == "__main__":
     try:
-        configure_env(BACKEND / ".env", BACKEND / ".env.example")
+        configure_env(API_DIRECTORY / ".env", API_DIRECTORY / ".env.example")
     except KeyboardInterrupt:
         print("\nSetup cancelled.")
         sys.exit(130)

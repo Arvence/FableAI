@@ -10,7 +10,7 @@ interface EditorialCase {
   expected_findings: string[];
 }
 
-const { cases } = JSON.parse(readFileSync(new URL('../../backend/tests/fixtures/editorial_cases.json', import.meta.url), 'utf8')) as { cases: EditorialCase[] };
+const { cases } = JSON.parse(readFileSync(new URL('../../api/tests/fixtures/editorial_cases.json', import.meta.url), 'utf8')) as { cases: EditorialCase[] };
 
 for (const fixture of cases) {
   test('editorial suggestions: ' + fixture.id, () => {

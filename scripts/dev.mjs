@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const backend = join(root, 'backend');
+const backend = join(root, 'api');
 const frontend = join(root, 'frontend');
 const python = join(backend, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const vite = join(frontend, 'node_modules/vite/bin/vite.js');
@@ -93,7 +93,7 @@ async function prepareBackend(refresh, signal) {
     const versionCheck = ['-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'];
     const selected = candidates.find(([command, ...args]) => probe(command, [...args, ...versionCheck]));
     if (!selected) throw new Error('Python 3.12 was not found. Install it and make it available on PATH.');
-    console.log('Creating backend/.venv...');
+    console.log('Creating api/.venv...');
     await run('Python environment setup', selected[0], [...selected.slice(1), '-m', 'venv', '.venv'], backend, signal);
   }
   const imports = 'import fastapi, google.genai, pydantic, uvicorn, httpx, httpx2, sqlalchemy, dotenv';

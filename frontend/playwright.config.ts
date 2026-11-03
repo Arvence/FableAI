@@ -1,8 +1,8 @@
 import { defineConfig } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
-const backend = fileURLToPath(new URL('../backend', import.meta.url));
-const python = fileURLToPath(new URL(process.platform === 'win32' ? '../backend/.venv/Scripts/python.exe' : '../backend/.venv/bin/python', import.meta.url));
+const backend = fileURLToPath(new URL('../api', import.meta.url));
+const python = fileURLToPath(new URL(process.platform === 'win32' ? '../api/.venv/Scripts/python.exe' : '../api/.venv/bin/python', import.meta.url));
 
 export default defineConfig({
   testDir: './tests',
