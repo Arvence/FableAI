@@ -473,11 +473,12 @@ test('saved processing status updates without a refresh control or another submi
   const id = await selectedChatId(page);
   let reads = 0;
   let submissions = 0;
+  let processing = true;
   await page.route('**/conversations/' + id, async route => {
     const response = await route.fetch();
     const detail = await response.json();
     reads += 1;
-    await route.fulfill({ response, json: { ...detail, processing: reads === 1 } });
+    await route.fulfill({ response, json: { ...detail, processing } });
   });
   await page.route('**/messages', route => {
     if (route.request().method() === 'POST') submissions += 1;
@@ -486,8 +487,11 @@ test('saved processing status updates without a refresh control or another submi
   await page.reload();
   await expect(page.getByText(/Its status is checked automatically/)).toBeVisible();
   await expect(page.getByLabel('Your message')).toBeDisabled();
+  const initialReads = reads;
+  processing = false;
   await expect(page.getByLabel('Your message')).toBeEnabled({ timeout: 7000 });
-  expect(reads).toBe(2);
+  await expect(page.getByText(/Its status is checked automatically/)).toHaveCount(0);
+  expect(reads).toBeGreaterThan(initialReads);
   expect(submissions).toBe(0);
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0);
 });
