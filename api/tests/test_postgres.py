@@ -32,7 +32,7 @@ BASE = "/api/v1/conversations"
 
 
 def open_client(database: Database, provider: Mock) -> TestClient:
-    return TestClient(create_app(Settings(database_url=database.url.render_as_string(hide_password=False)), provider=provider), base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+    return TestClient(create_app(Settings(local_demo=True, database_url=database.url.render_as_string(hide_password=False)), provider=provider), base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
 
 
 def test_fresh_postgres_requires_migrations_and_root_command_initializes_schema(postgres_database: Database) -> None:
@@ -48,7 +48,7 @@ def test_fresh_postgres_requires_migrations_and_root_command_initializes_schema(
     with postgres_database.engine.begin() as connection:
         command.upgrade(migration_config(connection), "head")
         context = MigrationContext.configure(connection)
-        assert context.get_current_revision() == "0002_projects"
+        assert context.get_current_revision() == "0003_credentials"
         assert compare_metadata(context, Base.metadata) == []
     assert set(inspect(postgres_database.engine).get_table_names()) == set(Base.metadata.tables) | {"alembic_version"}
 
@@ -216,3 +216,59 @@ def test_failed_finish_rolls_back_references_and_preserves_recoverable_claim(mig
     assert saved.status == 503
     assert repository.begin(conversation_id, key, "message", payload) == saved
     assert len(repository.messages(conversation_id, 100, 0).items) == 2
+
+
+
+def test_credentials_migration_preserves_project_settings_samples_and_existing_history(postgres_database: Database) -> None:
+    from app.credential_contracts import CredentialCreate
+    from app.persistence.credential_repository import CredentialRepository
+    from app.persistence.project_repository import ProjectRepository
+    from app.project_contracts import ProjectCreate
+    from test_projects import sample
+
+    with postgres_database.engine.begin() as connection:
+        command.upgrade(migration_config(connection), "0002_projects")
+    projects = ProjectRepository(postgres_database)
+    saved_project = projects.create(ProjectCreate(project_id="wowiki", display_name="WoWiki", generation_settings={"count": 2, "category": "news"}, references=[sample()], instructions=["Keep paragraphs compact."]))
+    conversations = ConversationRepository(postgres_database)
+    saved_conversation = conversations.create()
+    with postgres_database.engine.begin() as connection:
+        command.upgrade(migration_config(connection), "head")
+    postgres_database.initialize()
+    assert projects.get("wowiki") == saved_project
+    assert conversations.get(saved_conversation.conversation_id) == saved_conversation
+    credentials = CredentialRepository(postgres_database)
+    key = credentials.issue_project("wowiki", CredentialCreate(name="Migrated integration"))
+    assert credentials.authenticate(key.api_key.get_secret_value()).project_id == "wowiki"
+    with postgres_database.engine.begin() as connection:
+        command.downgrade(migration_config(connection), "0002_projects")
+        command.upgrade(migration_config(connection), "head")
+    assert projects.get("wowiki") == saved_project
+    assert conversations.get(saved_conversation.conversation_id) == saved_conversation
+    assert credentials.authenticate(key.api_key.get_secret_value()) is None
+
+
+def test_operator_cli_credentials_survive_process_restarts(migrated_postgres: Database) -> None:
+    import json
+    import sys
+
+    from app.persistence.credential_repository import CredentialRepository
+
+    environment = {**os.environ, "FABLEAI_DATABASE_URL": migrated_postgres.url.render_as_string(hide_password=False), "GEMINI_API_KEY": "", "GEMINI_MODEL": "", "FABLEAI_LOCAL_DEMO": "false"}
+    api = Path(__file__).resolve().parents[1]
+
+    def execute(*arguments):
+        result = subprocess.run([sys.executable, "-m", "app.manage_keys", *arguments], cwd=api, env=environment, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0
+        assert migrated_postgres.url.password not in result.stdout + result.stderr
+        assert result.stderr == ""
+        return json.loads(result.stdout)
+
+    repository = CredentialRepository(migrated_postgres)
+    original = execute("issue-admin", "--name", "Isolated CLI operator")
+    assert repository.authenticate(original["api_key"]).is_admin is True
+    replacement = execute("rotate", original["credential_id"])
+    assert repository.authenticate(original["api_key"]) is None
+    assert repository.authenticate(replacement["api_key"]).is_admin is True
+    assert execute("revoke", replacement["credential_id"]) == {"credential_id": replacement["credential_id"], "revoked": True}
+    assert repository.authenticate(replacement["api_key"]) is None

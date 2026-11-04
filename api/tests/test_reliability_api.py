@@ -56,7 +56,7 @@ def sdk_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable:
             return genai.Client(**kwargs)
 
         client_factory = Mock(side_effect=factory)
-        settings = Settings(gemini_api_key=key, gemini_model=model, database_path=tmp_path / "reliability.sqlite3")
+        settings = Settings(local_demo=True, gemini_api_key=key, gemini_model=model, database_path=tmp_path / "reliability.sqlite3")
         application = create_app(settings, provider=GeminiProvider(settings, client_factory=client_factory))
         with TestClient(application, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
             yield client, requests, client_factory
@@ -149,7 +149,7 @@ def test_database_failure_before_claim_cannot_consume_provider_quota(sdk_api: Ca
 def test_failed_persistence_keeps_submission_claim_and_recovers_without_replaying_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     provider = Mock(spec=GeminiProvider)
     provider.generate = AsyncMock(return_value=TurnPlan(action="message"))
-    application = create_app(Settings(database_path=tmp_path / "unavailable.sqlite3"), provider=provider)
+    application = create_app(Settings(local_demo=True, database_path=tmp_path / "unavailable.sqlite3"), provider=provider)
     with TestClient(application, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
         repository = application.state.repository
         assert repository.database.engine.hide_parameters is True

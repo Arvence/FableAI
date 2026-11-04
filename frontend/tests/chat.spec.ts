@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 const base = '/api/v1/conversations';
+const testState = 'http://127.0.0.1:8000/test-state';
 const sample = 'An original fictional example begins with a brief introduction and closes with practical details about a pretend exhibition.';
 
 test.beforeEach(async ({ page }) => {
@@ -69,28 +70,28 @@ test('multi-turn drafts, exact JSON, chat selection, and reload', async ({ page,
 });
 
 test('URL references remain links and are preserved across reload', async ({ page }) => {
-  const before = await (await page.request.get('/api/v1/test-state')).json();
+  const before = await (await page.request.get(testState)).json();
   await send(page, 'Save these links: https://example.com/source and https://127.0.0.1/private');
   const id = await selectedChatId(page);
   const saved = await (await page.request.get(base + '/' + id)).json();
   expect(saved.references.urls).toHaveLength(2);
   expect(saved.references.urls.every((link: { import_status: string }) => link.import_status === 'not_requested')).toBe(true);
-  expect((await (await page.request.get('/api/v1/test-state')).json()).import_requests).toBe(before.import_requests);
+  expect((await (await page.request.get(testState)).json()).import_requests).toBe(before.import_requests);
   await page.reload();
   await page.getByText('Submitted references', { exact: true }).click();
   await expect(page.getByRole('article', { name: 'You message', exact: true }).locator('.url-text')).toHaveCount(2);
-  expect((await (await page.request.get('/api/v1/test-state')).json()).import_requests).toBe(before.import_requests);
+  expect((await (await page.request.get(testState)).json()).import_requests).toBe(before.import_requests);
 });
 
 test('quota and invalid responses are errors, with no automatic resubmission', async ({ page }) => {
-  const before = await (await page.request.get('/api/v1/test-state')).json();
+  const before = await (await page.request.get(testState)).json();
   const quota = await send(page, 'Check the quota error.');
   expect(quota.status()).toBe(429);
   await expect(page.getByRole('alert')).toContainText('Gemini quota reached');
   await expect(page.getByLabel('Your message')).toHaveValue('Check the quota error.');
   await page.reload();
   await expect(page.getByRole('article', { name: 'FableAI message', exact: true })).toHaveCount(1);
-  expect((await (await page.request.get('/api/v1/test-state')).json()).provider_calls).toBe(before.provider_calls + 1);
+  expect((await (await page.request.get(testState)).json()).provider_calls).toBe(before.provider_calls + 1);
   expect((await send(page, 'Return an invalid response.')).status()).toBe(502);
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('article', { name: /^Entry \d/ })).toHaveCount(0);
@@ -132,7 +133,7 @@ for (const failure of ['connection loss', 'internal error'] as const) {
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Retry same submission' })).toBeVisible();
-    const calls = (await (await page.request.get('/api/v1/test-state')).json()).provider_calls;
+    const calls = (await (await page.request.get(testState)).json()).provider_calls;
     await page.unroute('**/messages');
     await page.reload();
     await expect(page.getByRole('button', { name: 'Retry same submission' })).toBeVisible();
@@ -143,7 +144,7 @@ for (const failure of ['connection loss', 'internal error'] as const) {
     expect((await result.json()).message_id).toBe(messageId);
     await expect(page.getByLabel('Your message')).toBeEnabled();
     await expect(page.getByRole('article', { name: 'You message', exact: true })).toHaveCount(1);
-    expect((await (await page.request.get('/api/v1/test-state')).json()).provider_calls).toBe(calls);
+    expect((await (await page.request.get(testState)).json()).provider_calls).toBe(calls);
   });
 }
 
@@ -321,13 +322,13 @@ test('one message box keeps removable file tiles above it and saves inline links
   await composer.scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('composer-files-mobile.png'), fullPage: true });
-  const before = await (await page.request.get('/api/v1/test-state')).json();
+  const before = await (await page.request.get(testState)).json();
   const response = await send(page, 'Remember these samples and (https://example.com/source). Also see https://example.com/demo_(one). Repeated: https://example.com/source');
   const submitted = response.request().postDataJSON();
   expect(submitted.examples).toEqual([sample, 'A pretend workshop hosts an imaginary paper sculpture display.']);
   expect(submitted.source_urls).toEqual(['https://example.com/source', 'https://example.com/demo_(one)']);
   await expect(files).toHaveCount(0);
-  expect((await (await page.request.get('/api/v1/test-state')).json()).import_requests).toBe(before.import_requests);
+  expect((await (await page.request.get(testState)).json()).import_requests).toBe(before.import_requests);
 });
 
 test('invalid attachments preserve the message and older saved composer fields migrate', async ({ page }) => {
@@ -735,14 +736,14 @@ for (const mismatch of ['submission', 'conversation']) {
     const id = await selectedChatId(page);
     const pending = await page.evaluate(id => JSON.parse(sessionStorage.getItem('fableai:pending:' + id)!), id);
     expect(pending.key).toBe(key);
-    const calls = (await (await page.request.get('/api/v1/test-state')).json()).provider_calls;
+    const calls = (await (await page.request.get(testState)).json()).provider_calls;
     const replay = page.waitForResponse(response => response.url().endsWith('/messages') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Retry same submission', exact: true }).click();
     const recovered = await replay;
     expect(recovered.request().headers()['idempotency-key']).toBe(key);
     await expect(page.getByLabel('Your message')).toHaveValue('');
     await expect(page.getByLabel('Your message')).toBeEnabled();
-    expect((await (await page.request.get('/api/v1/test-state')).json()).provider_calls).toBe(calls);
+    expect((await (await page.request.get(testState)).json()).provider_calls).toBe(calls);
   });
 }
 

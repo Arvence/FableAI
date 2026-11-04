@@ -43,7 +43,7 @@ def test_temporary_sqlite_databases_use_the_same_versioned_schema(tmp_path: Path
         database.initialize()
         with database.engine.connect() as connection:
             context = MigrationContext.configure(connection)
-            assert context.get_current_revision() == "0002_projects"
+            assert context.get_current_revision() == "0003_credentials"
             assert compare_metadata(context, Base.metadata) == []
         assert set(inspect(database.engine).get_table_names()) == set(Base.metadata.tables) | {"alembic_version"}
     finally:

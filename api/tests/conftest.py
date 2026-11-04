@@ -20,7 +20,7 @@ from app.persistence.database import Database, migration_config
 @pytest.fixture(autouse=True)
 def isolate_local_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(config, "ENV_FILE", tmp_path / ".env")
-    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "FABLEAI_DATABASE_PATH", "FABLEAI_DATABASE_URL"):
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "FABLEAI_DATABASE_PATH", "FABLEAI_DATABASE_URL", "FABLEAI_LOCAL_DEMO"):
         monkeypatch.delenv(name, raising=False)
 
 

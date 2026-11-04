@@ -1,9 +1,11 @@
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import UUID4
+
+from app.transport.authentication import require_conversations
 
 from app.api_contracts import ConversationDetail, ConversationPage, ImportResponse, ImportSubmission, MessagePage, ReviewPage, ReviewRequest, StoredEntry, VersionPage
 from app.contracts import ChatTurnInput, ErrorResponse
@@ -11,7 +13,7 @@ from app.conversation_contracts import ConversationResponse
 from app.persistence.conversation_repository import SavedResponse
 
 
-router = APIRouter(prefix="/api/v1/conversations", responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 408: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+router = APIRouter(prefix="/api/v1/conversations", dependencies=[Depends(require_conversations)], responses={401: {"model": ErrorResponse}, 400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 408: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 PageLimit = Annotated[int, Query(ge=1, le=100)]
 PageOffset = Annotated[int, Query(ge=0, le=1_000_000)]
 SubmissionHeader = Annotated[UUID4 | None, Header(alias="Idempotency-Key")]

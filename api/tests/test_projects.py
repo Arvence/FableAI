@@ -11,6 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
+from credential_helpers import administrator_headers
+
 from app.config import Settings
 from app.contracts import DraftBatch
 from app.generation.gemini_provider import GeminiProvider
@@ -40,6 +42,7 @@ def project_database(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator
 
 @pytest.fixture
 def project_api_factory(project_database: Database):
+    headers = administrator_headers(project_database)
     provider = Mock(spec=GeminiProvider)
     provider.generate = AsyncMock(side_effect=AssertionError("Project configuration must never invoke generation."))
     importer = Mock(side_effect=AssertionError("Saving samples must never import external content."))
@@ -47,7 +50,7 @@ def project_api_factory(project_database: Database):
     @contextmanager
     def open_client():
         settings = Settings(database_path=project_database.path) if project_database.path is not None else Settings(database_url=project_database.url.render_as_string(hide_password=False))
-        with TestClient(create_app(settings, provider=provider, importer_factory=importer), base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
+        with TestClient(create_app(settings, provider=provider, importer_factory=importer), base_url="http://127.0.0.1", client=("127.0.0.1", 50000), headers=headers) as client:
             yield client
 
     yield open_client

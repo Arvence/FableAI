@@ -9,6 +9,9 @@ from starlette.exceptions import HTTPException
 
 from app.transport.chat_api import router
 from app.transport.project_api import router as project_router
+from app.transport.credential_api import router as credential_router
+from app.transport.authentication import CredentialMiddleware
+from app.persistence.credential_repository import CredentialRepository
 from app.config import Settings, load_settings
 from app.contracts import SourcePermission
 from app.persistence.conversation_repository import ConversationRepository
@@ -33,6 +36,8 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
             repository.recover_expired()
             application.state.repository = repository
             application.state.projects = ProjectRepository(database)
+            application.state.credentials = CredentialRepository(database)
+            application.state.local_demo = configured.local_demo
             application.state.conversations = PersistentConversationService(repository, ConversationService(provider or GeminiProvider(configured)), importer_factory=importer_factory)
             yield
         finally:
@@ -41,7 +46,9 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
     application = FastAPI(title=settings.app_name if settings else "FableAI", lifespan=lifespan)
     application.include_router(router)
     application.include_router(project_router)
+    application.include_router(credential_router)
 
+    application.add_middleware(CredentialMiddleware)
     application.add_middleware(HttpSafeguardsMiddleware)
 
     @application.exception_handler(RepositoryError)

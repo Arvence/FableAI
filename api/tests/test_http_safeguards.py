@@ -158,7 +158,7 @@ def test_non_http_lifespan_events_pass_through() -> None:
 def api(tmp_path: Path) -> tuple:
     provider = Mock(spec=GeminiProvider)
     provider.generate = AsyncMock(return_value=TurnPlan(action="message"))
-    with TestClient(create_app(Settings(database_path=tmp_path / "http-safety.sqlite3"), provider=provider), base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
+    with TestClient(create_app(Settings(local_demo=True, database_path=tmp_path / "http-safety.sqlite3"), provider=provider), base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
         yield client, provider
 
 

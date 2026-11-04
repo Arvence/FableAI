@@ -97,9 +97,9 @@ def run() -> None:
         return ReferenceImporter(permissions, resolver=resolver, client_factory=client_factory)
 
     with TemporaryDirectory(prefix="fableai-browser-") as directory:
-        application = create_app(Settings(database_path=Path(directory) / "test.sqlite3"), provider=provider, importer_factory=importer_factory)
+        application = create_app(Settings(local_demo=True, database_path=Path(directory) / "test.sqlite3"), provider=provider, importer_factory=importer_factory)
 
-        @application.get("/api/v1/test-state")
+        @application.get("/test-state")
         def test_state() -> dict:
             return {"provider_calls": provider.generate.await_count, "import_requests": len(imported_requests)}
 

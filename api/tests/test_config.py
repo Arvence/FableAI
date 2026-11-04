@@ -12,7 +12,7 @@ from app.main import create_app
 
 def test_loads_backend_env_with_quotes_comments_and_windows_utf8_bom(tmp_path: Path) -> None:
     database_url = "postgresql+psycopg://test:private-password@127.0.0.1:5432/fableai"
-    config.ENV_FILE.write_text(f'GEMINI_API_KEY="fake-file-key" # test only\nGEMINI_MODEL=mock-model\nFABLEAI_DATABASE_URL="{database_url}"\nUNRELATED_SETTING=ignored\n', encoding="utf-8-sig")
+    config.ENV_FILE.write_text(f'GEMINI_API_KEY="fake-file-key" # test only\nGEMINI_MODEL=mock-model\nFABLEAI_DATABASE_URL="{database_url}"\nFABLEAI_LOCAL_DEMO=true\nUNRELATED_SETTING=ignored\n', encoding="utf-8-sig")
 
     settings = config.load_settings()
 
@@ -84,7 +84,7 @@ def test_application_startup_passes_file_configuration_to_mocked_provider(monkey
     database_url = "postgresql+psycopg://test:private-password@localhost/test"
     database_factory = Mock(side_effect=lambda _: Database(database_path))
     monkeypatch.setattr("app.main.Database", database_factory)
-    config.ENV_FILE.write_text(f'GEMINI_API_KEY=fake-startup-key\nGEMINI_MODEL=mock-startup-model\nFABLEAI_DATABASE_URL="{database_url}"\n', encoding="utf-8")
+    config.ENV_FILE.write_text(f'GEMINI_API_KEY=fake-startup-key\nGEMINI_MODEL=mock-startup-model\nFABLEAI_DATABASE_URL="{database_url}"\nFABLEAI_LOCAL_DEMO=true\n', encoding="utf-8")
     provider = Mock()
     provider.generate = AsyncMock(return_value=TurnPlan(action="message"))
     factory = Mock(return_value=provider)
@@ -113,3 +113,14 @@ def test_legacy_sqlite_environment_does_not_silently_select_or_modify_old_data(t
     settings = config.load_settings()
     assert settings.database_url is None and settings.database_path is None
     assert legacy.read_bytes() == b"preserve this legacy file"
+
+
+def test_local_demo_is_disabled_by_default_and_requires_explicit_valid_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert config.load_settings().local_demo is False
+    config.ENV_FILE.write_text("FABLEAI_LOCAL_DEMO=true\n", encoding="utf-8")
+    assert config.load_settings().local_demo is True
+    monkeypatch.setenv("FABLEAI_LOCAL_DEMO", "false")
+    assert config.load_settings().local_demo is False
+    monkeypatch.setenv("FABLEAI_LOCAL_DEMO", "not-a-boolean")
+    with pytest.raises(ValueError, match="FABLEAI_LOCAL_DEMO"):
+        config.load_settings()

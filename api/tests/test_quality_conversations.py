@@ -50,7 +50,7 @@ def test_fixture_conversation_clarifies_retains_context_generates_more_and_revis
     scenario = CONVERSATION
     preferences = scenario["preferences"]
     provider = mocked_provider(TurnPlan(action="generate", preferences=GenerationPreferences(count=2), stable_instruction=scenario["stable_instruction"]))
-    settings = Settings(database_path=tmp_path / "quality-conversation.sqlite3")
+    settings = Settings(local_demo=True, database_path=tmp_path / "quality-conversation.sqlite3")
     with open_client(settings, provider) as client:
         conversation_id = client.post(BASE).json()["conversation_id"]
         url = f"{BASE}/{conversation_id}"
@@ -117,7 +117,7 @@ def test_fixture_conversation_clarifies_retains_context_generates_more_and_revis
 @pytest.mark.parametrize("defect", ["foreign_target", "unchanged_revision", "copied_neighbor"])
 def test_quality_failure_during_revision_keeps_every_persisted_entry_and_version(tmp_path: Path, defect: str) -> None:
     provider = mocked_provider(TurnPlan(action="generate", preferences=GenerationPreferences(**CONVERSATION["preferences"])), DraftBatch(entries=[conversation_entry(identifier) for identifier in CONVERSATION["initial_entry_ids"]]))
-    settings = Settings(database_path=tmp_path / "atomic-quality.sqlite3")
+    settings = Settings(local_demo=True, database_path=tmp_path / "atomic-quality.sqlite3")
     with open_client(settings, provider) as client:
         conversation_id = client.post(BASE).json()["conversation_id"]
         send(client, conversation_id, "Generate two fictional drafts.", examples=[BY_ID["en-brief"]["reference"]])
@@ -149,7 +149,7 @@ def test_drafting_without_usable_references_preserves_import_permissions(tmp_pat
     resolver = AsyncMock(return_value=["127.0.0.1"])
     network_client = Mock(side_effect=AssertionError("Blocked imports must not open an HTTP client."))
     importer_factory = Mock(side_effect=lambda permissions: ReferenceImporter(permissions, resolver=resolver, client_factory=network_client))
-    settings = Settings(database_path=tmp_path / "reference-quality.sqlite3")
+    settings = Settings(local_demo=True, database_path=tmp_path / "reference-quality.sqlite3")
     with open_client(settings, provider, importer_factory=importer_factory) as client:
         conversation_id = client.post(BASE).json()["conversation_id"]
         url = f"{BASE}/{conversation_id}"
@@ -245,7 +245,7 @@ def test_conflicting_length_followup_asks_for_clarification_without_drafting() -
 @pytest.mark.parametrize("case", EDITORIAL_CASES, ids=lambda case: case["id"])
 def test_editorial_examples_remain_reviewable_revisable_and_replayable_after_restart(tmp_path: Path, case: dict) -> None:
     provider = mocked_provider(TurnPlan(action="generate"), DraftBatch(entries=[case["candidate"]]))
-    settings = Settings(database_path=tmp_path / "editorial.sqlite3")
+    settings = Settings(local_demo=True, database_path=tmp_path / "editorial.sqlite3")
     body = {"instruction": case["instruction"], "generation_settings": {key: value for key, value in case["constraints"].items() if key != "topic"}}
     body["generation_settings"]["body_length_mode"] = "target"
     submission_key = str(uuid4())

@@ -40,7 +40,7 @@ def imports(tmp_path: Path) -> tuple:
     def importer_factory(permissions: list) -> ReferenceImporter:
         return ReferenceImporter(permissions, resolver=resolver, client_factory=client_factory)
 
-    settings = Settings(database_path=tmp_path / "imports.sqlite3")
+    settings = Settings(local_demo=True, database_path=tmp_path / "imports.sqlite3")
     with TestClient(create_app(settings, provider=provider, importer_factory=importer_factory), base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
         conversation_id = client.post(BASE).json()["conversation_id"]
         response = client.post(f"{BASE}/{conversation_id}/messages", json={"instruction": "Save this reference URL.", "source_urls": [SOURCE]})

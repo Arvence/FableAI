@@ -105,3 +105,15 @@ class ProjectReferenceRow(Base):
     import_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     content: Mapped[dict] = mapped_column(JSON)
     __table_args__ = (UniqueConstraint("project_id", "kind", "position"), CheckConstraint("kind IN ('examples', 'headlines', 'urls')"), CheckConstraint("position >= 0"))
+
+
+class CredentialRow(Base):
+    __tablename__ = "api_credentials"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.project_id"), nullable=True, index=True)
+    is_admin: Mapped[bool]
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+    revoked_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    __table_args__ = (CheckConstraint("(is_admin AND project_id IS NULL) OR (NOT is_admin AND project_id IS NOT NULL)"), CheckConstraint("length(key_hash) = 64"))

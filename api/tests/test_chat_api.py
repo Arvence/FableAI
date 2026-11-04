@@ -44,7 +44,7 @@ def api_factory(tmp_path: Path) -> Callable:
     @contextmanager
     def build(provider: Mock | None = None, name: str = "api.sqlite3", **kwargs: object) -> Iterator[tuple[TestClient, Mock]]:
         selected = provider or mocked_provider()
-        application = create_app(Settings(database_path=tmp_path / name), provider=selected, **kwargs)
+        application = create_app(Settings(local_demo=True, database_path=tmp_path / name), provider=selected, **kwargs)
         with TestClient(application, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
             yield client, selected
     return build
@@ -342,7 +342,7 @@ def test_local_only_hosts_origins_and_peer_addresses(api_factory: Callable, tmp_
             assert client.post(BASE, headers={"Origin": origin}).status_code == 201
         for origin in ("http://127.0.0.1:5174", "http://localhost:5173.evil.example", "null"):
             assert client.post(BASE, headers={"Origin": origin}).status_code == 403
-    with TestClient(create_app(Settings(database_path=tmp_path / "remote.sqlite3"), provider=mocked_provider()), base_url="http://127.0.0.1", client=("203.0.113.8", 50000)) as client:
+    with TestClient(create_app(Settings(local_demo=True, database_path=tmp_path / "remote.sqlite3"), provider=mocked_provider()), base_url="http://127.0.0.1", client=("203.0.113.8", 50000)) as client:
         assert client.get(BASE).status_code == 403
 
 
