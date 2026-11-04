@@ -220,7 +220,7 @@ def test_output_contract_reuses_existing_draft_batch_without_generation(project_
         openapi = client.get("/openapi.json").json()
         assert set(openapi["paths"][BASE]) == {"get", "post"}
         assert set(openapi["paths"][BASE + "/{project_id}"]) == {"get", "patch"}
-        assert BASE + "/{project_id}/generations" not in openapi["paths"]
+        assert set(openapi["paths"][BASE + "/{project_id}/generations"]) == {"post"}
 
 
 def test_failed_write_rolls_back_settings_and_replaced_references(project_api_factory, monkeypatch: pytest.MonkeyPatch) -> None:

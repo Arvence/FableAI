@@ -93,3 +93,14 @@ class ProjectDetail(ProjectCreate):
 class ProjectPage(ContractModel):
     items: list[ProjectSummary] = Field(max_length=100)
     next_offset: int | None
+
+
+class ProjectGenerationRequest(ContractModel):
+    instruction: Instruction
+    overrides: GenerationSettings = Field(default_factory=GenerationSettings)
+
+    @model_validator(mode="after")
+    def validate_overrides(self) -> Self:
+        if any(getattr(self.overrides, field) is None for field in self.overrides.model_fields_set):
+            raise ValueError("Generation overrides must contain concrete values, not null.")
+        return self

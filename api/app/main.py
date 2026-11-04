@@ -20,6 +20,8 @@ from app.persistence.project_repository import ProjectRepository
 from app.generation.conversation_service import ConversationService
 from app.persistence.database import Database
 from app.generation.gemini_provider import GeminiProvider
+from app.generation.synthetic_generation import SyntheticGenerationService
+from app.project_generation import ProjectGenerationService
 from app.transport.http_safeguards import HttpSafeguardsMiddleware, error_response
 from app.persistent_conversation import PersistentConversationService
 from app.generation.reference_import import ReferenceImporter
@@ -30,6 +32,7 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         configured = settings or load_settings()
         database = Database(configured.database_url.get_secret_value() if configured.database_url else configured.database_path)
+        project_generations = None
         try:
             database.initialize()
             repository = ConversationRepository(database)
@@ -38,9 +41,14 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
             application.state.projects = ProjectRepository(database)
             application.state.credentials = CredentialRepository(database)
             application.state.local_demo = configured.local_demo
-            application.state.conversations = PersistentConversationService(repository, ConversationService(provider or GeminiProvider(configured)), importer_factory=importer_factory)
+            selected_provider = provider or GeminiProvider(configured)
+            project_generations = ProjectGenerationService(application.state.projects, SyntheticGenerationService(selected_provider))
+            application.state.project_generations = project_generations
+            application.state.conversations = PersistentConversationService(repository, ConversationService(selected_provider), importer_factory=importer_factory)
             yield
         finally:
+            if project_generations is not None:
+                project_generations.close()
             database.close()
 
     application = FastAPI(title=settings.app_name if settings else "FableAI", lifespan=lifespan)
