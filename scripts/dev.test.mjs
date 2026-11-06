@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
-import { assertPortAvailable, backendCommand, main, runProcesses } from './dev.mjs';
+import { assertPortAvailable, backendCommand, developmentDatabaseUrl, main, runProcesses } from './dev.mjs';
 
 async function waitFor(predicate) {
   const deadline = Date.now() + 10000;
@@ -107,6 +107,16 @@ test('an occupied port is reported without disturbing its listener', async () =>
     await new Promise(resolveClose => server.close(resolveClose));
   }
   await assertPortAvailable(port);
+});
+
+test('the local PostgreSQL URL safely encodes credentials and database names', () => {
+  const url = new URL(developmentDatabaseUrl({ user: 'local:user', password: 'p@ss:/word%', database: 'fable ai' }));
+  assert.equal(url.protocol, 'postgresql:');
+  assert.equal(url.hostname, '127.0.0.1');
+  assert.equal(url.port, '5432');
+  assert.equal(decodeURIComponent(url.username), 'local:user');
+  assert.equal(decodeURIComponent(url.password), 'p@ss:/word%');
+  assert.equal(decodeURIComponent(url.pathname.slice(1)), 'fable ai');
 });
 
 test('invalid flags fail before setup or server startup', async () => {

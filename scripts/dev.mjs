@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
+import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -9,6 +10,8 @@ const backend = join(root, 'api');
 const frontend = join(root, 'frontend');
 const python = join(backend, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const vite = join(frontend, 'node_modules/vite/bin/vite.js');
+const composeArgs = ['compose', '-f', 'docker-compose.yml'];
+const developmentComposeArgs = [...composeArgs, '-f', 'docker-compose.dev.yml'];
 
 export async function assertPortAvailable(port) {
   await new Promise((resolvePort, reject) => {
@@ -104,6 +107,44 @@ async function prepareBackend(refresh, signal) {
   await run('Backend configuration', python, [join(root, 'scripts/setup_env.py')], backend, signal);
 }
 
+export function developmentDatabaseUrl({ user, password, database }) {
+  return 'postgresql://' + encodeURIComponent(user) + ':' + encodeURIComponent(password) + '@127.0.0.1:5432/' + encodeURIComponent(database);
+}
+
+function runningComposeServices() {
+  const result = spawnSync('docker', [...composeArgs, 'ps', '--status', 'running', '--services'], { cwd: root, encoding: 'utf8', windowsHide: true });
+  if (result.error || result.status !== 0) throw new Error('Could not inspect Docker Compose services. Ensure Docker is running.');
+  return result.stdout.split(/\r?\n/).map(service => service.trim()).filter(Boolean);
+}
+
+async function prepareDevelopmentPostgres(signal) {
+  const envFile = join(root, '.env');
+  if (existsSync(envFile)) loadEnvFile(envFile);
+  const password = process.env.POSTGRES_PASSWORD;
+  if (!password) throw new Error('Set POSTGRES_PASSWORD in the ignored root .env file or environment before starting the local backend.');
+
+  const apiWasRunning = runningComposeServices().includes('api');
+  if (apiWasRunning) {
+    console.log('Stopping the Docker Compose API to free port 8000 for local development.');
+    await run('Docker Compose API shutdown', 'docker', [...developmentComposeArgs, 'stop', 'api'], root, signal);
+  }
+
+  try {
+    await run('Docker PostgreSQL startup', 'docker', [...developmentComposeArgs, 'up', '-d', '--wait', '--wait-timeout', '60', 'postgres'], root, signal);
+    process.env.FABLEAI_DATABASE_URL = developmentDatabaseUrl({
+      user: process.env.POSTGRES_USER || 'fableai',
+      password,
+      database: process.env.POSTGRES_DB || 'fableai',
+    });
+    return apiWasRunning;
+  } catch (error) {
+    if (apiWasRunning) {
+      await run('Docker Compose API restoration', 'docker', [...developmentComposeArgs, 'up', '-d', '--wait', '--wait-timeout', '60', 'api'], root, new AbortController().signal);
+    }
+    throw error;
+  }
+}
+
 async function prepareFrontend(refresh, signal) {
   if (refresh || !existsSync(vite) || !existsSync(join(frontend, 'node_modules/.package-lock.json'))) {
     const npm = process.env.npm_execpath;
@@ -134,6 +175,8 @@ export async function main(args = process.argv.slice(2)) {
   const interrupt = () => controller.abort();
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
+  let dockerApiWasRunning = false;
+  let exitCode = 0;
   try {
     if (target === 'migrate') {
       if (!existsSync(python)) throw new Error('Set up api/.venv before running database migrations.');
@@ -143,33 +186,49 @@ export async function main(args = process.argv.slice(2)) {
     const needsFrontend = target !== 'backend';
     const refresh = target === 'setup' || flags.includes('--setup');
     if (target !== 'setup') {
-      if (needsBackend) await assertPortAvailable(8000);
       if (needsFrontend) await assertPortAvailable(5173);
     }
+    if (needsBackend && target !== 'setup') {
+      dockerApiWasRunning = await prepareDevelopmentPostgres(controller.signal);
+      await assertPortAvailable(8000);
+    }
     if (needsBackend) await prepareBackend(refresh, controller.signal);
+    if (needsBackend && target !== 'setup') {
+      await run('Database migrations', python, ['-m', 'alembic', '-c', 'alembic.ini', 'upgrade', 'head'], backend, controller.signal);
+    }
     if (needsFrontend) await prepareFrontend(refresh, controller.signal);
     if (target === 'setup') {
       console.log('Setup complete. Run npm run start:all to start FableAI.');
-      return 0;
+      exitCode = 0;
+    } else {
+      const commands = [];
+      if (needsBackend) {
+        commands.push(backendCommand());
+        console.log('Backend: http://127.0.0.1:8000');
+      }
+      if (needsFrontend) {
+        commands.push({ label: 'Frontend', command: process.execPath, args: [vite], cwd: frontend });
+        console.log('Frontend: http://127.0.0.1:5173');
+      }
+      console.log('Press Ctrl+C to stop.');
+      exitCode = await runProcesses(commands, { signal: controller.signal, continuous: true });
     }
-    const commands = [];
-    if (needsBackend) {
-      commands.push(backendCommand());
-      console.log('Backend: http://127.0.0.1:8000');
-    }
-    if (needsFrontend) {
-      commands.push({ label: 'Frontend', command: process.execPath, args: [vite], cwd: frontend });
-      console.log('Frontend: http://127.0.0.1:5173');
-    }
-    console.log('Press Ctrl+C to stop.');
-    return await runProcesses(commands, { signal: controller.signal, continuous: true });
   } catch (error) {
     if (!controller.signal.aborted) console.error(error.message);
-    return controller.signal.aborted ? 0 : 1;
+    exitCode = controller.signal.aborted ? 0 : 1;
   } finally {
+    if (dockerApiWasRunning) {
+      try {
+        await run('Docker Compose API restoration', 'docker', [...developmentComposeArgs, 'up', '-d', '--wait', '--wait-timeout', '60', 'api'], root, new AbortController().signal);
+      } catch {
+        console.error('Could not restore the Docker Compose API after local development stopped.');
+        exitCode = 1;
+      }
+    }
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', interrupt);
   }
+  return exitCode;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
