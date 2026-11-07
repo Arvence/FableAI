@@ -41,6 +41,7 @@ def create_app(settings: Settings | None = None, *, provider: GeminiProvider | N
             application.state.projects = ProjectRepository(database)
             application.state.credentials = CredentialRepository(database)
             application.state.local_demo = configured.local_demo
+            application.state.local_development_key = configured.local_development_key
             selected_provider = provider or GeminiProvider(configured)
             project_generations = ProjectGenerationService(application.state.projects, SyntheticGenerationService(selected_provider))
             application.state.project_generations = project_generations

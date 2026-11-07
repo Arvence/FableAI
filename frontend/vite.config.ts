@@ -11,7 +11,20 @@ const localServer = {
 };
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'local-development-api-auth',
+    configureServer(server) {
+      const key = process.env.FABLEAI_LOCAL_DEVELOPMENT_KEY;
+      if (!key) return;
+      server.middlewares.use((request, _response, next) => {
+        const path = request.url?.split('?')[0] ?? '';
+        if (path === '/api/v1/conversations' || path.startsWith('/api/v1/conversations/')) {
+          request.headers.authorization = 'Bearer ' + key;
+        }
+        next();
+      });
+    },
+  }],
   server: localServer,
   preview: localServer,
 });

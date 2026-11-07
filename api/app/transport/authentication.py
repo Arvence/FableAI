@@ -1,3 +1,4 @@
+import secrets
 from typing import Annotated
 
 from fastapi import Depends, Request, Security
@@ -33,11 +34,15 @@ class CredentialMiddleware:
         elif len(headers) == 1:
             scheme, separator, token = headers[0].partition(" ")
             if separator and scheme.lower() == "bearer":
-                try:
-                    principal = await run_in_threadpool(request.app.state.credentials.authenticate, token)
-                except SQLAlchemyError:
-                    await error_response(503, "storage_failed", "Credential verification is unavailable. No operation was started.")(scope, receive, send)
-                    return
+                local_key = getattr(request.app.state, "local_development_key", None)
+                if conversation_path and local_key is not None and secrets.compare_digest(token.encode(), local_key.get_secret_value().encode()):
+                    principal = Principal(is_local_demo=True)
+                else:
+                    try:
+                        principal = await run_in_threadpool(request.app.state.credentials.authenticate, token)
+                    except SQLAlchemyError:
+                        await error_response(503, "storage_failed", "Credential verification is unavailable. No operation was started.")(scope, receive, send)
+                        return
         if principal is None:
             response = error_response(401, "unauthorized", "A valid FableAI API credential is required.")
             response.headers["WWW-Authenticate"] = "Bearer"

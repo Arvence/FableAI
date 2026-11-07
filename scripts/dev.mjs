@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -104,7 +105,6 @@ async function prepareBackend(refresh, signal) {
     console.log('Installing backend dependencies...');
     await run('Backend dependency installation', python, ['-m', 'pip', 'install', '-r', 'requirements.txt'], backend, signal);
   }
-  await run('Backend configuration', python, [join(root, 'scripts/setup_env.py')], backend, signal);
 }
 
 export function developmentDatabaseUrl({ user, password, database }) {
@@ -136,6 +136,7 @@ async function prepareDevelopmentPostgres(signal) {
       password,
       database: process.env.POSTGRES_DB || 'fableai',
     });
+    process.env.FABLEAI_LOCAL_DEVELOPMENT_KEY = randomBytes(32).toString('base64url');
     return apiWasRunning;
   } catch (error) {
     if (apiWasRunning) {

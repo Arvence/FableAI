@@ -16,6 +16,7 @@ class Settings(BaseModel):
     gemini_timeout_seconds: float = Field(default=60.0, gt=0, le=60, strict=True)
     database_url: SecretStr | None = None
     database_path: Path | None = Field(default=None, exclude=True)
+    local_development_key: SecretStr | None = None
 
 
 def load_settings() -> Settings:
@@ -23,6 +24,8 @@ def load_settings() -> Settings:
     values = {"gemini_api_key": getenv("GEMINI_API_KEY", file_values.get("GEMINI_API_KEY")) or None, "gemini_model": getenv("GEMINI_MODEL", file_values.get("GEMINI_MODEL")) or None}
     if url := getenv("FABLEAI_DATABASE_URL", file_values.get("FABLEAI_DATABASE_URL")):
         values["database_url"] = url
+    if key := getenv("FABLEAI_LOCAL_DEVELOPMENT_KEY"):
+        values["local_development_key"] = key
     demo = (getenv("FABLEAI_LOCAL_DEMO", file_values.get("FABLEAI_LOCAL_DEMO")) or "false").strip().lower()
     if demo not in {"true", "false"}:
         raise ValueError("FABLEAI_LOCAL_DEMO must be true or false.")

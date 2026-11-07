@@ -292,6 +292,21 @@ def test_demo_requires_explicit_opt_in_and_never_bypasses_project_security(secur
         assert_denied(remote.get(BASE, headers=authorization(admin)), 403)
 
 
+def test_local_development_key_authenticates_only_conversations(secured_api, project_database) -> None:
+    _, _, provider, _ = secured_api
+    key = "test-local-development-key"
+    location = {"database_path": project_database.path} if project_database.path is not None else {"database_url": project_database.url.render_as_string(hide_password=False)}
+    with TestClient(create_app(Settings(**location, local_development_key=key), provider=provider), base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
+        assert_denied(client.get(CHAT), 401)
+        assert client.get(CHAT, headers={"Authorization": "Bearer " + key}).status_code == 200
+        assert client.post(CHAT, headers={"Authorization": "Bearer " + key}).status_code == 201
+        assert_denied(client.get(BASE, headers={"Authorization": "Bearer " + key}), 401)
+        assert_denied(client.get(CHAT, headers={"Authorization": "Bearer " + key + "x"}), 401)
+        assert provider.generate.await_count == 0
+    with TestClient(create_app(Settings(**location, local_development_key=key), provider=provider), base_url="http://127.0.0.1", client=("192.0.2.1", 50000)) as remote:
+        assert remote.get(CHAT, headers={"Authorization": "Bearer " + key}).status_code == 403
+
+
 def test_openapi_requires_bearer_authentication_on_all_production_api_routes(secured_api) -> None:
     open_client, _, _, _ = secured_api
     with open_client() as client:
