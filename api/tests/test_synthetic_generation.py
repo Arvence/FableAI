@@ -1,6 +1,5 @@
 import asyncio
 import json
-from copy import deepcopy
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
 
@@ -10,7 +9,7 @@ from pydantic import TypeAdapter, ValidationError
 from app.contracts import MAX_ENTRIES, ChatResponse, DraftBatch, ErrorResponse, GenerationRequest, GenerationResponse, ReferenceCollection, ReferenceText, SampleHeadline, SourcePermission, URLReference
 from app.generation.gemini_provider import GeminiProvider, GeminiProviderError, ProviderFailure
 from app.generation.generation_checks import has_suspect_overlap
-from app.generation.generation_prompts import DEMONSTRATIONS, MAX_ANALYZED_CHARS, MAX_PROMPT_BYTES, MAX_PROMPT_CHARS, build_generation_prompt
+from app.generation.generation_prompts import MAX_ANALYZED_CHARS, MAX_PROMPT_BYTES, MAX_PROMPT_CHARS, build_generation_prompt
 from app.generation.synthetic_generation import SyntheticGenerationService
 
 
@@ -68,9 +67,7 @@ def test_prompt_summarizes_style_without_copying_source_text() -> None:
     assert example["tone_hints"] == ["formal_signals"]
     assert example["vocabulary"]["average_word_characters"] > 0
     assert headline["title_structure"] == {"word_count": 6, "has_colon": True, "is_question": True, "starts_with_number": True}
-    assert len(data["demonstrations"]) == 2
-    for demonstration in data["demonstrations"]:
-        DraftBatch.model_validate(demonstration["response"])
+    assert "demonstrations" not in data
     assert len(prompt.text) <= MAX_PROMPT_CHARS
     assert len(prompt.text.encode("utf-8")) <= MAX_PROMPT_BYTES
 
@@ -275,12 +272,6 @@ def test_rejects_copying_authorized_reference_material(source_kind: str) -> None
     assert result.kind == "error" and "overlaps" in result.error.message
     assert text not in result.model_dump_json()
     provider.generate.assert_awaited_once()
-
-
-def test_rejects_copying_few_shot_demonstrations() -> None:
-    provider = fake_provider(deepcopy(DEMONSTRATIONS[0]["response"]))
-    result = asyncio.run(SyntheticGenerationService(provider).generate(generation_request(), generation_references()))
-    assert result.kind == "error" and "overlaps" in result.error.message
 
 
 @pytest.mark.parametrize("field", ["title", "body"])

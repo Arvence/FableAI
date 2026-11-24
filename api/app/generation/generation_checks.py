@@ -105,5 +105,5 @@ def validate_generated_batch(batch: DraftBatch, request: GenerationRequest, sour
             raise GenerationRejected("generation_failed", "Generated wording conflicts with the requested tone checks.", field)
         for candidate in (entry.title, entry.body):
             if any(has_suspect_overlap(candidate, source) for source in (*source_texts, *previous_texts)):
-                raise GenerationRejected("generation_failed", "Generated text overlaps with reference material, demonstration text, or another draft. Request different content.", field)
+                raise GenerationRejected("generation_failed", "Generated text overlaps with reference material or another draft. Request different content.", field)
         previous_texts.extend((entry.title, entry.body))
