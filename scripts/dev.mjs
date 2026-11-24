@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
@@ -103,8 +103,11 @@ async function prepareBackend(refresh, signal) {
   const imports = 'import fastapi, google.genai, pydantic, uvicorn, httpx, httpx2, sqlalchemy, dotenv, alembic, psycopg';
   if (refresh || !probe(python, ['-c', imports])) {
     console.log('Installing backend dependencies...');
+    await run('Python installer update', python, ['-m', 'pip', 'install', '--upgrade', 'pip>=26.2'], backend, signal);
     await run('Backend dependency installation', python, ['-m', 'pip', 'install', '-r', 'requirements.txt'], backend, signal);
   }
+  const envFile = join(backend, '.env');
+  if (!existsSync(envFile)) writeFileSync(envFile, readFileSync(join(backend, '.env.example')), { flag: 'wx', mode: 0o600 });
 }
 
 export function developmentDatabaseUrl({ user, password, database }) {
@@ -164,7 +167,7 @@ export function backendCommand(app = 'app.main:app', cwd = backend, port = 8000)
 
 export async function main(args = process.argv.slice(2)) {
   if (args.includes('--help')) {
-    console.log('From the repository root:\n  npm run start:all\n  npm run start:frontend\n  npm run start:backend\n  npm run start:all:setup\n  npm run setup\n  npm run db:migrate\n\nUse -- --setup with any start command to refresh its dependencies.\nMissing dependencies and backend settings are handled on first start.');
+    console.log('From the repository root:\n  npm run start:all\n  npm run start:frontend\n  npm run start:backend\n  npm run start:all:setup\n  npm run setup\n  npm run db:migrate\n\nUse -- --setup with any start command to refresh its dependencies.\nMissing dependencies and the blank api/.env template are prepared on first start. Set POSTGRES_PASSWORD in root .env before starting the backend.');
     return 0;
   }
   const [target, ...flags] = args;

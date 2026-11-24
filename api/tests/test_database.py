@@ -64,3 +64,30 @@ def test_legacy_sqlite_is_rejected_without_changing_file_bytes(tmp_path: Path) -
         assert not Path(str(path) + "-wal").exists()
     finally:
         database.close()
+
+
+def test_existing_sqlite_schema_inspection_closes_its_read_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    connections = []
+    connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+            super().close()
+
+    def tracked_connect(*args, **kwargs):
+        connection = connect(*args, **kwargs, factory=TrackedConnection)
+        connections.append(connection)
+        return connection
+
+    database = Database(tmp_path / "inspection.sqlite3")
+    try:
+        database.initialize()
+        monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+        database.initialize()
+        assert len(connections) == 1
+        assert connections[0].closed
+    finally:
+        database.close()

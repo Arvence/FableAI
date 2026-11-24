@@ -350,3 +350,28 @@ def test_cli_failures_never_echo_a_secret_supplied_instead_of_a_credential_id(se
     failure = capsys.readouterr()
     assert failure.out == "" and admin["api_key"] not in failure.err
     assert "Credential management failed" in failure.err
+
+
+@pytest.mark.parametrize("peer", ["192.168.65.1", "172.18.0.1", "10.1.0.1", "::ffff:172.18.0.1"])
+def test_container_peers_require_real_credentials_and_keep_host_origin_boundaries(secured_api, project_database, peer: str) -> None:
+    _, admin, provider, _ = secured_api
+    location = {"database_path": project_database.path} if project_database.path is not None else {"database_url": project_database.url.render_as_string(hide_password=False)}
+    application = create_app(Settings(**location, container_mode=True, local_demo=True, local_development_key="test-local-key"), provider=provider)
+    with TestClient(application, base_url="http://127.0.0.1", client=(peer, 50000)) as client:
+        assert_denied(client.get(CHAT), 401)
+        assert_denied(client.get(CHAT, headers={"Authorization": "Bearer test-local-key"}), 401)
+        assert client.get(BASE, headers=authorization(admin)).status_code == 200
+        assert client.get(CHAT, headers=authorization(admin)).status_code == 200
+        assert_denied(client.get(BASE, headers={**authorization(admin), "Host": "remote.example"}), 403)
+        assert_denied(client.get(BASE, headers={**authorization(admin), "Origin": "https://remote.example"}), 403)
+        assert_denied(client.get(BASE, headers={"Authorization": "Bearer forged"}), 401)
+        assert provider.generate.await_count == 0
+
+
+@pytest.mark.parametrize("peer", ["198.51.100.1", "169.254.169.254", "8.8.8.8"])
+def test_container_mode_does_not_accept_public_or_metadata_peers(secured_api, project_database, peer: str) -> None:
+    _, admin, provider, _ = secured_api
+    location = {"database_path": project_database.path} if project_database.path is not None else {"database_url": project_database.url.render_as_string(hide_password=False)}
+    with TestClient(create_app(Settings(**location, container_mode=True), provider=provider), base_url="http://127.0.0.1", client=(peer, 50000)) as client:
+        assert_denied(client.get(BASE, headers=authorization(admin)), 403)
+        assert provider.generate.await_count == 0

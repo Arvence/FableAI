@@ -30,6 +30,16 @@ def _loopback(host: str | None) -> bool:
         return False
 
 
+def _container_peer(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return any(address in ipaddress.ip_network(network) for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+
+
 class RequestRejected(Exception):
     def __init__(self, status: int, code: str, message: str) -> None:
         self.status = status
@@ -54,7 +64,9 @@ class HttpSafeguardsMiddleware:
             host = target.hostname
         except ValueError:
             raise RequestRejected(400, "invalid_request", "The request has an invalid Host header.") from None
-        if not _loopback(host) or request.client is None or not _loopback(request.client.host):
+        container_mode = getattr(getattr(scope.get("app"), "state", None), "container_mode", False)
+        local_peer = request.client is not None and (_loopback(request.client.host) or (container_mode and _container_peer(request.client.host)))
+        if not _loopback(host) or not local_peer:
             raise RequestRejected(403, "access_denied", "This API accepts local loopback requests only.")
         origins = request.headers.getlist("origin")
         allowed_origins = {f"{scope.get('scheme', 'http')}://{authority}", "http://127.0.0.1:5173", "http://localhost:5173"}

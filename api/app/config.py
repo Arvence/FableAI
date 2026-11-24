@@ -11,6 +11,7 @@ ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 class Settings(BaseModel):
     app_name: str = "FableAI"
     local_demo: bool = Field(default=False, strict=True)
+    container_mode: bool = Field(default=False, strict=True)
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
     gemini_timeout_seconds: float = Field(default=60.0, gt=0, le=60, strict=True)
@@ -30,4 +31,8 @@ def load_settings() -> Settings:
     if demo not in {"true", "false"}:
         raise ValueError("FABLEAI_LOCAL_DEMO must be true or false.")
     values["local_demo"] = demo == "true"
+    container = getenv("FABLEAI_CONTAINER_MODE", "false").strip().lower()
+    if container not in {"true", "false"}:
+        raise ValueError("FABLEAI_CONTAINER_MODE must be true or false.")
+    values["container_mode"] = container == "true"
     return Settings(**values)

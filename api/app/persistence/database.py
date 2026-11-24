@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from alembic import command
@@ -52,7 +53,7 @@ class Database:
     def initialize(self) -> None:
         if self.path is not None:
             if self.path.exists() and self.path.stat().st_size:
-                with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as existing:
+                with closing(sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)) as existing:
                     tables = {row[0] for row in existing.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 if tables and "alembic_version" not in tables:
                     raise RuntimeError("Legacy SQLite data was left unchanged. Automatic transfer is not supported; configure PostgreSQL and run npm run db:migrate.")

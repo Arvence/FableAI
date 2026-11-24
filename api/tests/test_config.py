@@ -124,3 +124,14 @@ def test_local_demo_is_disabled_by_default_and_requires_explicit_valid_configura
     monkeypatch.setenv("FABLEAI_LOCAL_DEMO", "not-a-boolean")
     with pytest.raises(ValueError, match="FABLEAI_LOCAL_DEMO"):
         config.load_settings()
+
+
+def test_container_mode_requires_explicit_process_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert config.load_settings().container_mode is False
+    config.ENV_FILE.write_text("FABLEAI_CONTAINER_MODE=true\n", encoding="utf-8")
+    assert config.load_settings().container_mode is False
+    monkeypatch.setenv("FABLEAI_CONTAINER_MODE", "true")
+    assert config.load_settings().container_mode is True
+    monkeypatch.setenv("FABLEAI_CONTAINER_MODE", "invalid")
+    with pytest.raises(ValueError, match="FABLEAI_CONTAINER_MODE"):
+        config.load_settings()

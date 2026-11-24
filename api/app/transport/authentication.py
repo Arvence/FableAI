@@ -11,7 +11,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.credential_contracts import Principal
 from app.persistence.errors import RepositoryError
 from app.project_contracts import ProjectId
-from app.transport.http_safeguards import error_response
+from app.transport.http_safeguards import _loopback, error_response
 
 
 bearer = HTTPBearer(auto_error=False, scheme_name="FableAIKey")
@@ -28,14 +28,15 @@ class CredentialMiddleware:
         request = Request(scope)
         headers = Headers(scope=scope).getlist("authorization")
         conversation_path = scope["path"] == "/api/v1/conversations" or scope["path"].startswith("/api/v1/conversations/")
+        local_peer = request.client is not None and _loopback(request.client.host)
         principal = None
-        if not headers and request.app.state.local_demo and conversation_path:
+        if not headers and local_peer and request.app.state.local_demo and conversation_path:
             principal = Principal(is_local_demo=True)
         elif len(headers) == 1:
             scheme, separator, token = headers[0].partition(" ")
             if separator and scheme.lower() == "bearer":
                 local_key = getattr(request.app.state, "local_development_key", None)
-                if conversation_path and local_key is not None and secrets.compare_digest(token.encode(), local_key.get_secret_value().encode()):
+                if local_peer and conversation_path and local_key is not None and secrets.compare_digest(token.encode(), local_key.get_secret_value().encode()):
                     principal = Principal(is_local_demo=True)
                 else:
                     try:
