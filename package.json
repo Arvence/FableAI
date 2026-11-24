@@ -10,7 +10,8 @@
     "start:all:setup": "node scripts/dev.mjs all --setup",
     "setup": "node scripts/dev.mjs setup",
     "db:migrate": "node scripts/dev.mjs migrate",
-    "test:scripts": "node --test scripts/dev.test.mjs"
+    "test:scripts": "node --test scripts/dev.test.mjs",
+    "test:examples": "node --test examples/generate.test.mjs"
   },
   "engines": {
     "node": ">=22.12.0"

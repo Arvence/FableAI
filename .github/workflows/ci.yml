@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GEMINI_API_KEY: ""
+  GEMINI_MODEL: ""
+  GOOGLE_API_KEY: ""
+  GOOGLE_GENAI_USE_VERTEXAI: "false"
+  FABLEAI_LOCAL_DEMO: "false"
+  FABLEAI_LOCAL_DEVELOPMENT_KEY: ""
+
+jobs:
+  backend:
+    name: Backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: api/.venv/bin/python
+            postgres: --postgres
+          - os: windows-latest
+            python: api/.venv/Scripts/python.exe
+            postgres: ""
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install backend dependencies
+        run: |
+          python -m venv api/.venv
+          "${{ matrix.python }}" -m pip install --upgrade "pip>=26.2"
+          "${{ matrix.python }}" -m pip install -r api/requirements.txt
+          "${{ matrix.python }}" -m pip check
+      - name: Check whitespace and Python syntax
+        run: |
+          git diff --check
+          "${{ matrix.python }}" -m compileall -q api/app api/migrations scripts
+      - name: Run backend and migration tests
+        working-directory: api
+        run: |
+          "../${{ matrix.python }}" -m pytest -q ${{ matrix.postgres }}
+      - name: Test development launcher
+        run: npm run test:scripts
+      - name: Test external generation client with fake responses
+        run: npm run test:examples
+
+  frontend:
+    name: Frontend and browser regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install fake-backend dependencies
+        run: |
+          python -m venv api/.venv
+          api/.venv/bin/python -m pip install --upgrade "pip>=26.2"
+          api/.venv/bin/python -m pip install -r api/requirements.txt
+          api/.venv/bin/python -m pip check
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build and type-check frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run browser tests with the fake provider
+        working-directory: frontend
+        run: npm test
+
+  docker:
+    name: Isolated Docker startup and health
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          python -m venv api/.venv
+          api/.venv/bin/python -m pip install --upgrade "pip>=26.2"
+          api/.venv/bin/python -m pip install -r api/requirements.txt
+          api/.venv/bin/python -m pip check
+      - name: Check image startup, migrations, and local health
+        working-directory: api
+        run: .venv/bin/python -m pytest tests/test_docker.py --docker -q

@@ -17,18 +17,17 @@ interface Draft {
   attachments: Attachment[];
 }
 
-interface PreviousDraft {
-  instruction: string;
-  examples: string[];
-  headlines: string;
-  urls: string;
-}
-
 const empty: Draft = { instruction: '', attachments: [] };
 
 function restoreDraft(conversationId: string): Draft {
-  const saved = readSession<Draft | PreviousDraft>('draft:' + conversationId, empty);
-  if ('attachments' in saved) return saved;
+  const saved = readSession<unknown>('draft:' + conversationId, null);
+  if (!saved || typeof saved !== 'object' || !('instruction' in saved) || typeof saved.instruction !== 'string') return empty;
+  if ('attachments' in saved) {
+    if (!Array.isArray(saved.attachments) || saved.attachments.length > 10) return empty;
+    const attachments = saved.attachments.filter((file): file is Attachment => !!file && typeof file === 'object' && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.text === 'string' && (file.kind === 'sample' || file.kind === 'headline'));
+    return { instruction: saved.instruction, attachments };
+  }
+  if (!('examples' in saved) || !Array.isArray(saved.examples) || !saved.examples.every(text => typeof text === 'string') || !('headlines' in saved) || typeof saved.headlines !== 'string' || !('urls' in saved) || typeof saved.urls !== 'string') return empty;
   const samples = saved.examples.map((text, index): Attachment => ({ id: crypto.randomUUID(), name: 'Sample ' + (index + 1) + '.txt', text, kind: 'sample' }));
   const headlines = saved.headlines.split(/\r?\n/).filter(text => text.trim()).map((text, index): Attachment => ({ id: crypto.randomUUID(), name: 'Headline ' + (index + 1) + '.txt', text, kind: 'headline' }));
   return { instruction: [saved.instruction, saved.urls].filter(Boolean).join('\n\n'), attachments: [...samples, ...headlines] };

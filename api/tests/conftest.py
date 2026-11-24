@@ -20,7 +20,7 @@ from app.persistence.database import Database, migration_config
 @pytest.fixture(autouse=True)
 def isolate_local_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(config, "ENV_FILE", tmp_path / ".env")
-    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "FABLEAI_DATABASE_PATH", "FABLEAI_DATABASE_URL", "FABLEAI_LOCAL_DEMO", "FABLEAI_LOCAL_DEVELOPMENT_KEY"):
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "FABLEAI_DATABASE_PATH", "FABLEAI_DATABASE_URL", "FABLEAI_LOCAL_DEMO", "FABLEAI_LOCAL_DEVELOPMENT_KEY", "FABLEAI_CONTAINER_MODE"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -36,6 +36,7 @@ def block_network_transports(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--docker", action="store_true", help="Build and check an isolated Docker Compose test stack.")
     parser.addoption("--postgres", action="store_true", help="Run integration tests against a disposable Docker PostgreSQL 16 database.")
 
 

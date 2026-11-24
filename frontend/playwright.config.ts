@@ -1,5 +1,8 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import { defineConfig } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
+
+process.env.FABLEAI_TEST_ADMIN_KEY ??= 'fableai_' + randomUUID().replaceAll('-', '') + '_' + randomBytes(32).toString('base64url');
 
 const backend = fileURLToPath(new URL('../api', import.meta.url));
 const python = fileURLToPath(new URL(process.platform === 'win32' ? '../api/.venv/Scripts/python.exe' : '../api/.venv/bin/python', import.meta.url));

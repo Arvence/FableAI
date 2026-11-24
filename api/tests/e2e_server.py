@@ -19,9 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings
 from app.persistence.database import Database
-from app.persistence.project_repository import ProjectRepository
 from app.persistence.storage_models import CredentialRow
-from app.project_contracts import ProjectCreate
 from app.contracts import DraftBatch, SourcePermission
 from app.conversation_contracts import GenerationPreferences, TurnPlan
 from app.generation.gemini_provider import GeminiProvider, GeminiProviderError, ProviderFailure
@@ -67,10 +65,6 @@ async def generate(prompt: str, schema: type) -> object:
     if schema is DraftBatch:
         data, _ = json.JSONDecoder().raw_decode(prompt.split("DATA_JSON:\n", 1)[1])
         constraints = data["constraints"]
-        if constraints["topic"] == "Simulate project quota":
-            raise GeminiProviderError(ProviderFailure.RATE_LIMITED)
-        if constraints["topic"] == "Slow project generation":
-            await asyncio.sleep(1)
         assert constraints["count"] <= len(CONTENTS), "Add distinct fixtures before testing larger browser batches."
         case = next((case for case in CASES if case[0].lower() == constraints["topic"].lower()), None)
         contents = [content_for(case)] if case else CONTENTS
@@ -111,15 +105,12 @@ def run() -> None:
 
     with TemporaryDirectory(prefix="fableai-browser-") as directory:
         path = Path(directory) / "test.sqlite3"
-        database = Database(path)
-        database.initialize()
-        projects = ProjectRepository(database)
-        project_keys = json.loads(os.getenv("FABLEAI_TEST_PROJECT_KEYS", "{}"))
-        for project_id, token in project_keys.items():
-            projects.create(ProjectCreate(project_id=project_id, display_name="WoWiki" if project_id == "wowiki" else "Fictional Club", generation_settings={"count": 2 if project_id == "wowiki" else 1, "category": "news" if project_id == "wowiki" else "blog", "language": "en" if project_id == "wowiki" else "en-GB", "min_body_chars": 80, "max_body_chars": 350}, instructions=["Use short paragraphs."], references=[]))
+        if token := os.getenv("FABLEAI_TEST_ADMIN_KEY"):
+            database = Database(path)
+            database.initialize()
             with Session(database.engine) as session, session.begin():
-                session.add(CredentialRow(id=str(UUID(hex=token.split("_")[1])), name="Browser test project", project_id=project_id, is_admin=False, key_hash=hashlib.sha256(token.encode()).hexdigest(), created_at=datetime.now(UTC).isoformat()))
-        database.close()
+                session.add(CredentialRow(id=str(UUID(hex=token.split("_")[1])), name="Browser test administrator", project_id=None, is_admin=True, key_hash=hashlib.sha256(token.encode()).hexdigest(), created_at=datetime.now(UTC).isoformat()))
+            database.close()
         application = create_app(Settings(local_demo=True, database_path=path), provider=provider, importer_factory=importer_factory)
 
         @application.get("/test-state")
